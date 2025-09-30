@@ -97,7 +97,7 @@ class UNetModel(nn.Module):
         
         def forward(self, t, x, y=None):
             timestep = t
-            assert (y is not None) == (self.num_classes is not None), 'UNet: Must specify y if and only if the model is class-conditional'
+            assert (y is not None) == (self.num_classes is not None), 'Must specify y if and only if the model is class-conditional'
             
             while timestep.dim() > 1:
                 timestep = timestep[:, 0]

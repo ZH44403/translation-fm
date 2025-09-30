@@ -32,6 +32,7 @@ class Downsample(nn.Module):
     
     def __init__(self, in_channels, conv_resample, dims=2, out_channels=None):
         super().__init__()
+        
         self.in_channels = in_channels
         self.out_channels = out_channels or in_channels
         self.conv_resample = conv_resample
@@ -45,7 +46,7 @@ class Downsample(nn.Module):
             
     def forward(self, x):
         
-        assert x.shape[1] == self.in_channels, ('Downsample: Expected input {} channels, but got {} channels', self.in_channels, x.shape[1])
+        assert x.shape[1] == self.in_channels, ('Expected input {} channels, but got {} channels', self.in_channels, x.shape[1])
         
         return self.down(x)
 
@@ -55,6 +56,7 @@ class Upsample(nn.Module):
     
     def __init__(self, in_channels, conv_resample, dims=2, out_channels=None):
         super().__init__()
+        
         self.in_channels = in_channels
         self.out_channels = out_channels or in_channels
         self.conv_resample = conv_resample
@@ -67,7 +69,7 @@ class Upsample(nn.Module):
         
     def forward(self, x):
         
-        assert x.shape[1] == self.in_channels, ('Upsample: Expected input {} channels, but got {} channels', self.in_channels, x.shape[1])
+        assert x.shape[1] == self.in_channels, ('Expected input {} channels, but got {} channels', self.in_channels, x.shape[1])
         
         x = self.up(x)
         if self.conv_resample:
@@ -261,7 +263,6 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     return embedding
 
 
-        
         
 def zero_module(module: nn.Module):
     

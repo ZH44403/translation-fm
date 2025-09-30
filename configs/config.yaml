@@ -1,0 +1,17 @@
+# training_configurations
+
+
+seed: 42
+device: cuda
+
+data:
+  root: /data/imagenet
+  num_workers: 8
+
+model:
+  name: unet
+
+optim:
+  lr: 1e-3
+  weight_decay: 1e-4
+  batch_size: 8
