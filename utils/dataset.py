@@ -9,57 +9,53 @@ from typing import List, Tuple, Optional, Callable, Literal
 
 class SEN12Dataset(data.Dataset):
     
-    def __init__(self, root_dir: Path, data_type : Literal['train, valid, test'], load_from_json: bool=False,
+    def __init__(self, root_dir: Path, data_type : Literal['train, valid, test'], 
+                 json_path: str='./configs/sen12.json',
                  image_transform: Optional[Callable]=None, target_transform: Optional[Callable]=None,
-                 split_ratio: Tuple=(0.8, 0.1, 0.1), seed: int=42):
+                 split_ratio: Tuple=(0.8, 0.1, 0.1), seed: int=114514):
         super().__init__()
         
         self.root_dir = Path(root_dir)
         assert self.root_dir.exists(), f'Dataset directory not found {self.root_dir}'
         
         transform = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
+        
         self.image_transform = image_transform if image_transform else transform
         self.target_transform = target_transform if target_transform else transform
         
-        image_pairs = self._get_image_pairs()
-        
-        if load_from_json:
-            # TODO: load_from_json
-            self.image_pairs = self._load_from_json()
+        # load_from_json和split_ratio取出来的image_pairs和classes的index不是一致的
+        if json_path is not None:
+            self.image_pairs, self.categories = self._load_from_json(json_path, data_type)
         else:
-            self.image_pairs = self._random_split(image_pairs, data_type, split_ratio, seed)
+            image_pairs, categories = self._get_image_pairs()
+            self.image_pairs, self.categories = self._random_split(image_pairs, categories, data_type, split_ratio, seed)
         
         
-    def _get_image_pairs(self) -> List[Tuple[Path, Path]]:
+    @staticmethod
+    def _load_from_json(json_path: str, data_type: Literal['train, valid, test']):
         
         image_pairs = []
+        classes = []
         
-        for category in self.root_dir.iterdir():
+        with open(json_path, 'r') as f:
+            dataset = json.load(f)
             
-            s1_path = category / 's1'
-            # s2_path = category / 's2'
-            
-            for s1_file in s1_path.glob('*.png'):
-                s2_file = Path(str(s1_file).replace('/s1', '/s2').replace('_s1', '_s2'))
-                
-                assert s1_file.exists(), f'Image not found: {s1_file}'
-                assert s2_file.exists(), f'Image not found: {s2_file}'
-                
-                image_pairs.append((s1_file, s2_file))
-                
-        return image_pairs
-        
-        
-    def _load_from_json():
-        
-        return 
+        for item in dataset[data_type]:
+            image_pairs.append((item['path'][0], item['path'][1]))
+            classes.append(item['class'])
     
-    def _random_split(image_pair: Tuple[Path, Path], data_type: Literal['train, valid, test'],
+        return image_pairs, classes
+        
+    
+    @staticmethod
+    def _random_split(image_pairs: Tuple[Path, Path], 
+                      categories: List[str],
+                      data_type: Literal['train, valid, test'],
                       split_ratio: Tuple[float, float, float], seed: int) -> Tuple[Path, Path]:
         
         assert sum(split_ratio) == 1.0, 'Sum of split ratios must be 1.0'
         
-        indices = list(range(len(image_pair)))
+        indices = list(range(len(image_pairs)))
         
         random.seed(seed)
         random.shuffle(indices)        
@@ -67,20 +63,42 @@ class SEN12Dataset(data.Dataset):
         train_end = int(len(indices) * split_ratio[0])
         valid_end = train_end + int(len(indices) * split_ratio[1])
         
-        train_indices = indices[:train_end]
-        valid_indices = indices[train_end:valid_end]
-        test_indices  = indices[valid_end:]
+        index_map = {
+            'train': indices[:train_end],
+            'valid': indices[train_end:valid_end],
+            'test' : indices[valid_end:]
+        }
 
+        try:
+            idx = index_map[data_type]
+            
+        except KeyError:
+            raise ValueError(f'data_type must be one of {tuple(index_map)}')
 
-        if data_type == 'train':
-            return train_indices
+        return [image_pairs[i] for i in idx], [categories[i] for i in idx]
+    
+    
+    def _get_image_pairs(self) -> List[Tuple[Path, Path]]:
         
-        elif data_type == 'valid':
-            return valid_indices
+        image_pairs = []
+        categories = []
         
-        else:
-            return test_indices
-        
+        for category in sorted(p for p in self.root_dir.iterdir() if p.is_dir()):
+            
+            s1_path = category / 's1'
+            # s2_path = category / 's2'
+            
+            for s1_file in sorted(s1_path.glob('*.png')):
+                s2_file = Path(str(s1_file).replace('/s1', '/s2').replace('_s1', '_s2'))
+                
+                assert s1_file.exists(), f'Image not found: {s1_file}'
+                assert s2_file.exists(), f'Image not found: {s2_file}'
+                
+                image_pairs.append((s1_file, s2_file))
+                categories.append(category.name)
+                
+        return image_pairs, categories
+    
         
     def __len__(self):
         
@@ -89,7 +107,9 @@ class SEN12Dataset(data.Dataset):
     
     def __getitem__(self, index):
         
-        s1_path, s2_path = self.image_pairs[index]
+        s1_path = self.image_pairs[index][0]
+        s2_path = self.image_pairs[index][1]
+        # category = self.categories[index]
         
         s1_image = Image.open(s1_path).convert('RGB')
         s2_image = Image.open(s2_path).convert('RGB')
@@ -97,4 +117,12 @@ class SEN12Dataset(data.Dataset):
         s1_image = self.image_transform(s1_image)
         s2_image = self.image_transform(s2_image)
         
+        # return s1_image, s2_image, category
+        
         return s1_image, s2_image
+    
+    
+if __name__ == '__main__':
+    
+    dataset = SEN12Dataset('../../dataset/sen12_categorized', 'train', json_path=None)
+    print(dataset[0])
