@@ -10,7 +10,7 @@ class UNetModel(nn.Module):
                  conv_resample=True, new_att_order=False):
         super().__init__()
         
-        self.image_size     = image_size
+        self.image_size     = image_size        # 默认image的H和W相等
         self.in_channels    = in_channels
         self.model_channels = model_channels
         self.out_channels   = out_channels

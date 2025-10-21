@@ -25,10 +25,10 @@ class SEN12Dataset(data.Dataset):
         
         # load_from_json和split_ratio取出来的image_pairs和classes的index不是一致的
         if json_path is not None:
-            self.image_pairs, self.categories = self._load_from_json(json_path, data_type)
+            self.image_pairs, self.classes = self._load_from_json(json_path, data_type)
         else:
-            image_pairs, categories = self._get_image_pairs()
-            self.image_pairs, self.categories = self._random_split(image_pairs, categories, data_type, split_ratio, seed)
+            image_pairs, classes = self._get_image_pairs()
+            self.image_pairs, self.classes = self._random_split(image_pairs, classes, data_type, split_ratio, seed)
         
         
     @staticmethod
@@ -49,7 +49,7 @@ class SEN12Dataset(data.Dataset):
     
     @staticmethod
     def _random_split(image_pairs: Tuple[Path, Path], 
-                      categories: List[str],
+                      classes: List[str],
                       data_type: Literal['train, valid, test'],
                       split_ratio: Tuple[float, float, float], seed: int) -> Tuple[Path, Path]:
         
@@ -75,18 +75,18 @@ class SEN12Dataset(data.Dataset):
         except KeyError:
             raise ValueError(f'data_type must be one of {tuple(index_map)}')
 
-        return [image_pairs[i] for i in idx], [categories[i] for i in idx]
+        return [image_pairs[i] for i in idx], [classes[i] for i in idx]
     
     
     def _get_image_pairs(self) -> List[Tuple[Path, Path]]:
         
         image_pairs = []
-        categories = []
+        classes = []
         
-        for category in sorted(p for p in self.root_dir.iterdir() if p.is_dir()):
+        for class_name in sorted(p for p in self.root_dir.iterdir() if p.is_dir()):
             
-            s1_path = category / 's1'
-            # s2_path = category / 's2'
+            s1_path = class_name / 's1'
+            # s2_path = class_name / 's2'
             
             for s1_file in sorted(s1_path.glob('*.png')):
                 s2_file = Path(str(s1_file).replace('/s1', '/s2').replace('_s1', '_s2'))
@@ -95,9 +95,9 @@ class SEN12Dataset(data.Dataset):
                 assert s2_file.exists(), f'Image not found: {s2_file}'
                 
                 image_pairs.append((s1_file, s2_file))
-                categories.append(category.name)
+                classes.append(class_name.name)
                 
-        return image_pairs, categories
+        return image_pairs, classes
     
         
     def __len__(self):
@@ -109,7 +109,7 @@ class SEN12Dataset(data.Dataset):
         
         s1_path = self.image_pairs[index][0]
         s2_path = self.image_pairs[index][1]
-        # category = self.categories[index]
+        # class_name = self.classes[index]
         
         s1_image = Image.open(s1_path).convert('RGB')
         s2_image = Image.open(s2_path).convert('RGB')
@@ -117,7 +117,7 @@ class SEN12Dataset(data.Dataset):
         s1_image = self.image_transform(s1_image)
         s2_image = self.image_transform(s2_image)
         
-        # return s1_image, s2_image, category
+        # return s1_image, s2_image, class_name
         
         return s1_image, s2_image
     

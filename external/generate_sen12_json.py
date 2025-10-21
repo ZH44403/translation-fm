@@ -36,7 +36,7 @@ def generate_dataset_json(root_dir: Path, output_dir: Path,
         def make_items(path: List[str]) -> List[Dict[str, str]]:
             return [{'path': [str(p.resolve()), 
                               str(p.resolve()).replace('/s1', '/s2').replace('_s1', '_s2')],
-                     'category': category_name} for p in path]
+                     'class': category_name} for p in path]
         
         train_list.extend(make_items(image_list[:n_train]))
         valid_list.extend(make_items(image_list[n_train:n_train+n_valid]))
@@ -49,7 +49,7 @@ def generate_dataset_json(root_dir: Path, output_dir: Path,
             'split_ratio': split_ratio,
             'seed': seed,
             'num_classes': len(class_list),
-            'categories': class_list,
+            'classes': class_list,
             'generate_time': datetime.now().isoformat(timespec='seconds'),
             'count': {
                 'train': len(train_list),

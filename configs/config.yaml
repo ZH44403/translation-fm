@@ -1,17 +1,23 @@
 # training_configurations
 
 
-seed: 42
-device: cuda
 
-data:
-  root: /data/imagenet
+
+dataloader:
   num_workers: 8
+  batch_size: 8
+
+dataset:
+  name: 'sen12'
+  root_dir: '../../dataset/sen12_categorized'
+  seed: 42
 
 model:
-  name: unet
+  name: 'unet'
 
-optim:
+train:
+  device: 'cuda'
   lr: 1e-3
   weight_decay: 1e-4
-  batch_size: 8
+  
+  
