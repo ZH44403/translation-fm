@@ -95,16 +95,16 @@ class ResBlock(TimestepBlock):
             nn.Conv2d(in_channels, self.out_channels, kernel_size=3, padding=1)
         )
         
-        # self.updown = up or down
+        self.updown = up or down
         
-        # if up:
-        #     self.h_upd = Upsample(in_channels, False, dims)
-        #     self.x_upd = Upsample(in_channels, False, dims)
-        # elif down:
-        #     self.h_upd = Downsample(in_channels, False, dims)
-        #     self.x_upd = Downsample(in_channels, False, dims)
-        # else:
-        #     self.h_upd = self.x_upd = nn.Identity()
+        if up:
+            self.h_upd = Upsample(in_channels, False, dims)
+            self.x_upd = Upsample(in_channels, False, dims)
+        elif down:
+            self.h_upd = Downsample(in_channels, False, dims)
+            self.x_upd = Downsample(in_channels, False, dims)
+        else:
+            self.h_upd = self.x_upd = nn.Identity()
         
         self.emb_layers = nn.Sequential(
             nn.SiLU(),
@@ -124,22 +124,22 @@ class ResBlock(TimestepBlock):
             self.skip_connection = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
             
         
-        def forward(self, x, emb):
-            
-            if self.updown:
-                in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
-                h = in_rest(x)
-                h = self.h_upd(h)
-                x = self.x_upd(x)
-                h = in_conv(h)
-            else:
-                h = self.in_layers(x)
-            
-            emb_out = self.emb_layers(emb).type(h.dtype)
-            h = h + emb_out[:, :, None, None]
-            h = self.out_layers(h)
-            
-            return self.skip_connection(x) + h
+    def forward(self, x, emb):
+        
+        if self.updown:
+            in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
+            h = in_rest(x)
+            h = self.h_upd(h)
+            x = self.x_upd(x)
+            h = in_conv(h)
+        else:
+            h = self.in_layers(x)
+        
+        emb_out = self.emb_layers(emb).type(h.dtype)
+        h = h + emb_out[:, :, None, None]
+        h = self.out_layers(h)
+        
+        return self.skip_connection(x) + h
             
             
 class AttentionBlock(nn.Module):
@@ -257,6 +257,7 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     )
     args = timesteps[:, None].float() * freqs[None]
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+    
     if dim % 2:
         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
     

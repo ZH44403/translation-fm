@@ -1,16 +1,17 @@
 # training_configurations
 
 device: 'cuda'
+seed: 114514
 
 dataset:
   name: 'sen12'
   root_dir: '../../dataset/sen12_categorized'
   split_ratio: [0.8, 0.1, 0.1]
-  seed: 114514
+
 
 dataloader:
   num_workers: 8
-  batch_size: 8
+  batch_size: 4
 
 
 model:
@@ -21,8 +22,10 @@ flow:
   sigma_min: 1e-4
 
 train:
-  lr_min: 1e-3
-  lr_max: 1e-7
+  epochs: 500
+  min_lr: 1e-3
+  max_lr: 1e-7
   weight_decay: 1e-4
-
-  
+  accumulate_steps: 2
+  warmup_steps: 10000
+  max_steps: 400000

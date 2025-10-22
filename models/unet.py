@@ -5,7 +5,7 @@ from models.modules import *
 class UNetModel(nn.Module):
     
     def __init__(self, image_size, in_channels, model_channels, out_channels, 
-                 num_res_blocks=2, attention_resolutions='16', num_heads=1, num_head_channels=-1, num_heads_upsample=-1,
+                 num_res_blocks=2, attention_resolutions=(16, 8), num_heads=1, num_head_channels=-1, num_heads_upsample=-1,
                  channel_mult=(1, 2, 4, 8), dims=2, dropout=.0, num_classes=None, 
                  conv_resample=True, new_att_order=False):
         super().__init__()
@@ -60,7 +60,8 @@ class UNetModel(nn.Module):
 
             if level != len(channel_mult) - 1:
                 out_ch = ch
-                self.input_blocks.append(Downsample(ch, conv_resample=conv_resample, dims=dims, out_channels=out_ch))
+                self.input_blocks.append(TimestepEmbedSequential(Downsample(ch, conv_resample=conv_resample, 
+                                                                            dims=dims, out_channels=out_ch)))
                 ch = out_ch
                 input_block_channels.append(ch)
                 downsample *= 2
@@ -95,34 +96,34 @@ class UNetModel(nn.Module):
                                  nn.SiLU(),
                                  zero_module(nn.Conv2d(input_ch, out_channels, kernel_size=3, padding=1)))
         
-        def forward(self, t, x, y=None):
-            timestep = t
-            assert (y is not None) == (self.num_classes is not None), 'Must specify y if and only if the model is class-conditional'
+    def forward(self, x, t, y=None):
+
+        assert (y is not None) == (self.num_classes is not None), 'Must specify y if and only if the model is class-conditional'
+        
+        # while t.dim() > 1:
+        #     t = t[:, 0]
+        # if t.dim() == 0:
+        #     t = t.repeat(x.shape[0])
+        
+        hs = []
+        emb = self.time_embed(timestep_embedding(t, self.model_channels))
+        
+        if self.num_classes is not None:
+            assert y.shape == (x.shape[0],)
+            emb = emb + self.label_emb(y)
             
-            while timestep.dim() > 1:
-                timestep = timestep[:, 0]
-            if timesteps.dim() == 0:
-                timesteps = timesteps.repeat(x.shape[0])
+        h = x.type(self.dtype)
+        
+        for module in self.input_blocks:
+            h = module(h, emb)
+            hs.append(h)
+        
+        h = self.middle_block(h, emb)
+        
+        for module in self.output_blocks:
+            h = torch.cat([h, hs.pop()], dim=1)
+            h = module(h, emb)
             
-            hs = []
-            emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
-            
-            if self.num_classes is not None:
-                assert y.shape == (x.shape[0],)
-                emb = emb + self.label_emb(y)
-                
-            h = x.type(self.dtype)
-            
-            for module in self.input_blocks:
-                h = module(h, emb)
-                hs.append(h)
-            
-            h = self.middle_block(h, emb)
-            
-            for module in self.output_blocks:
-                h = torch.cat([h, hs.pop()], dim=1)
-                h = module(h, emb)
-                
-            h = h.type(x.dtype)
-            
-            return self.out(h)
+        h = h.type(x.dtype)
+        
+        return self.out(h)

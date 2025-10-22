@@ -10,7 +10,7 @@ from typing import List, Tuple, Optional, Callable, Literal
 class SEN12Dataset(data.Dataset):
     
     def __init__(self, root_dir: Path, data_type : Literal['train, valid, test'], 
-                 json_path: str='./configs/sen12.json',
+                 json_path: str='./data/sen12.json',
                  image_transform: Optional[Callable]=None, target_transform: Optional[Callable]=None,
                  split_ratio: List=[0.8, 0.1, 0.1], seed: int=114514):
         super().__init__()
