@@ -12,7 +12,7 @@ class SEN12Dataset(data.Dataset):
     def __init__(self, root_dir: Path, data_type : Literal['train, valid, test'], 
                  json_path: str='./configs/sen12.json',
                  image_transform: Optional[Callable]=None, target_transform: Optional[Callable]=None,
-                 split_ratio: Tuple=(0.8, 0.1, 0.1), seed: int=114514):
+                 split_ratio: List=[0.8, 0.1, 0.1], seed: int=114514):
         super().__init__()
         
         self.root_dir = Path(root_dir)
@@ -40,6 +40,7 @@ class SEN12Dataset(data.Dataset):
         with open(json_path, 'r') as f:
             dataset = json.load(f)
             
+        # 按照data_type取数据集
         for item in dataset[data_type]:
             image_pairs.append((item['path'][0], item['path'][1]))
             classes.append(item['class'])
@@ -51,7 +52,7 @@ class SEN12Dataset(data.Dataset):
     def _random_split(image_pairs: Tuple[Path, Path], 
                       classes: List[str],
                       data_type: Literal['train, valid, test'],
-                      split_ratio: Tuple[float, float, float], seed: int) -> Tuple[Path, Path]:
+                      split_ratio: Tuple[float, float, float], seed: int) -> Tuple[Tuple[Path, Path], List[str]]:
         
         assert sum(split_ratio) == 1.0, 'Sum of split ratios must be 1.0'
         
@@ -75,10 +76,11 @@ class SEN12Dataset(data.Dataset):
         except KeyError:
             raise ValueError(f'data_type must be one of {tuple(index_map)}')
 
+        # 按照data_type取数据集
         return [image_pairs[i] for i in idx], [classes[i] for i in idx]
     
     
-    def _get_image_pairs(self) -> List[Tuple[Path, Path]]:
+    def _get_image_pairs(self) -> Tuple[Tuple[Path, Path], List[str]]:
         
         image_pairs = []
         classes = []
@@ -113,7 +115,7 @@ class SEN12Dataset(data.Dataset):
         
         s1_image = Image.open(s1_path).convert('RGB')
         s2_image = Image.open(s2_path).convert('RGB')
-        
+                
         s1_image = self.image_transform(s1_image)
         s2_image = self.image_transform(s2_image)
         
