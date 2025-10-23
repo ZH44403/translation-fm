@@ -15,14 +15,17 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed(seed)
     
     
-def loss_func(model: UNetModel, flow: OptimalTransportFlow):
+def criterion(model: UNetModel, flow: OptimalTransportFlow):
     
-    def _loss(batch: torch.Tensor) -> torch.Tensor:
+    def _loss(sar: torch.Tensor, opt: torch.Tensor) -> torch.Tensor:
         
-        t = torch.rand(batch.shape[0], device=batch.device)
-        x_0 = torch.randn_like(batch)
+        assert sar.shape == opt.shape
         
-        x_t, v_true = flow.step(t, x_0, batch)
+        t = torch.rand(sar.shape[0], device=sar.device)
+        # generate from noise
+        # x_0 = torch.randn_like(sar)
+        
+        x_t, v_true = flow.step(t, sar, opt)
         v_pred = model(x_t, t)
     
         return torch.nn.functional.mse_loss(v_pred, v_true)

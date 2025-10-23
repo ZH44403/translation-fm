@@ -2,7 +2,6 @@ import torch
 import hydra
 
 from tqdm import tqdm
-from pathlib import Path
 from torch.utils.data import DataLoader, Dataset
 from omegaconf import DictConfig, OmegaConf
 
@@ -23,8 +22,8 @@ def train(args: DictConfig):
     
     train_loader = DataLoader(train_set, batch_size=args.dataloader.batch_size, 
                               shuffle=True, num_workers=args.dataloader.num_workers)
-    # valid_loader = DataLoader(valid_set, batch_size=args.dataloader.batch_size,
-                            #   shuffle=False, num_workers=args.dataloader.num_workers)
+    valid_loader = DataLoader(valid_set, batch_size=args.dataloader.batch_size,
+                              shuffle=False, num_workers=args.dataloader.num_workers)
     
     # num_classes = len(set(train_set.classes))   # {'urban', 'barren', 'cropland', 'grassland'}
     sar_shape = train_set[0][0].shape           # torch.Size([3, 256, 256])
@@ -38,7 +37,7 @@ def train(args: DictConfig):
     
     flow_model = flow.OptimalTransportFlow(args.flow.sigma_min)
     
-    loss_func = utils.loss_func(model, flow_model)
+    criterion = utils.criterion(model, flow_model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.train.min_lr)
     scaler = torch.amp.GradScaler()
     
@@ -47,21 +46,24 @@ def train(args: DictConfig):
     
     current_epoch = 0
     step = 0
-    # train
+
     accumulate_steps = args.train.accumulate_steps
     
     for epoch in range(current_epoch, args.train.epochs):
+        
+        # train
         model.train()
         ema_model.train()
         
         for i, (sar, opt) in enumerate(train_loader):
             sar = sar.to(device)
+            opt = opt.to(device)
             
             if i % accumulate_steps == 0:
                 optimizer.zero_grad(set_to_none=True)
             
             with torch.amp.autocast(device_type=device):
-                loss = loss_func(sar) / accumulate_steps
+                loss = criterion(sar, opt) / accumulate_steps
             
             scaler.scale(loss).backward()
             
@@ -81,6 +83,16 @@ def train(args: DictConfig):
 
                 step += 1
                 
+        # valid
+        with torch.no_grad():
+            model.eval()
+            ema_model.eval()
+            
+            
+        
+        
+        
+        
         
 if __name__ == '__main__':
     

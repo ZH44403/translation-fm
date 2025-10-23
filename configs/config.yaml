@@ -19,7 +19,7 @@ model:
   num_res_blocks: 2
 
 flow:
-  sigma_min: 1e-4
+  sigma_min: 0.0
 
 train:
   epochs: 500
