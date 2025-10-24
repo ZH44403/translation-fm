@@ -39,8 +39,3 @@ def calculate_psnr(real_image, generated_image):
         return 100
     
     return 20 * np.log10(255.0 / np.sqrt(mse))
-
-
-def calculate_ssim(real_image, generated_image):
-    
-    ...

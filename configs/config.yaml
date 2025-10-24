@@ -29,3 +29,4 @@ train:
   accumulate_steps: 2
   warmup_steps: 10000
   max_steps: 400000
+  eval_steps: 50

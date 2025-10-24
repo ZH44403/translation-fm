@@ -41,3 +41,18 @@ class GaussianBridgeFlow:
         dx_t = (x_1 - x_0) - self.sigma * epsilon
 
         return x_t, dx_t
+    
+
+@torch.no_grad()
+def integrate_flow(model, x_0, steps=50, device='cpu'):
+    
+    x = x_0.clone()
+    dt = 1.0 / steps
+    
+    for i in range(steps):
+        
+        t = torch.full((x.shape[0], ), i * dt, device=device)
+        v = model(t, x)
+        x = x + v * dt
+        
+    return x

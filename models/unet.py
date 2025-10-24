@@ -96,9 +96,9 @@ class UNetModel(nn.Module):
                                  nn.SiLU(),
                                  zero_module(nn.Conv2d(input_ch, out_channels, kernel_size=3, padding=1)))
         
-    def forward(self, x, t, y=None):
+    def forward(self, t, x, y=None):
 
-        assert (y is not None) == (self.num_classes is not None), 'Must specify y if and only if the model is class-conditional'
+        # assert (y is not None) == (self.num_classes is not None), 'Must specify y if and only if the model is class-conditional'
         
         # while t.dim() > 1:
         #     t = t[:, 0]
