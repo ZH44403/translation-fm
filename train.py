@@ -11,7 +11,7 @@ from models import flow, unet
 from utils import dist, losses, metrics, utils
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 # hydra的装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
@@ -46,7 +46,7 @@ def train(args: DictConfig):
     
     model = unet.UNetModel(image_size=sar_shape[1], in_channels=sar_shape[0], 
                            model_channels=128, out_channels=opt_shape[0],
-                           num_res_blocks=args.model.num_res_blocks, ).to(device)
+                           num_res_blocks=args.model.num_res_blocks, ).to(device).float()
     # model = torch.compile(model)
     
     ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(0.9999))
@@ -78,42 +78,45 @@ def train(args: DictConfig):
         train_loss_sum = 0.0
         
         train_bar = tqdm(enumerate(train_loader), total=len(train_loader), 
-                         desc=f"Epoch {epoch}/{args.train.epochs} [train]", dynamic_ncols=True)
+                         desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
         
         for i, (sar, opt) in train_bar:
             
-            sar = sar.to(device)
-            opt = opt.to(device)
+            sar = sar.to(device, dtype=torch.float32)
+            opt = opt.to(device, dtype=torch.float32)
             
             if i % accumulate_steps == 0:
                 optimizer.zero_grad(set_to_none=True)
             
-            with torch.amp.autocast(device_type=device):
+            # with torch.amp.autocast(device_type=device):
                 
-                t = torch.rand(sar.shape[0], device=device)
-                
-                # generate from noise
-                # x_0 = torch.randn_like(sar)
-                
-                assert sar.shape == opt.shape
-                x_t, v_true = flow_model.step(t, sar, opt)
-                v_pred = model(t, x_t)
-                
-                train_loss = mse(v_pred, v_true) / accumulate_steps
+            t = torch.rand(sar.shape[0], device=device)
             
-            scaler.scale(train_loss).backward()
+            # generate from noise
+            # x_0 = torch.randn_like(sar)
+            
+            assert sar.shape == opt.shape
+            x_t, v_true = flow_model.step(t, sar, opt)
+            v_pred = model(t, x_t)
+            
+            train_loss = mse(v_pred, v_true) / accumulate_steps
+            
+            # scaler.scale(train_loss).backward()
+            train_loss.backward()
             
             if (i+1) % accumulate_steps == 0 or (i+1) == len(train_loader):
                 
-                scaler.unscale_(optimizer)
+                # scaler.unscale_(optimizer)
                 grad = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
+                # scaler.step(optimizer)
+                # scaler.update()
+                optimizer.step()
                 
                 ema_model.update_parameters(model)
                 
-                for pg in optimizer.param_groups:
-                    pg['lr'] = utils.get_lr(args, step) 
+                # learning rate schedule
+                # for pg in optimizer.param_groups:
+                #     pg['lr'] = utils.get_lr(args, step) 
 
                 step += 1
             
@@ -133,16 +136,16 @@ def train(args: DictConfig):
         valid_mmssim_sum = 0.0
         
         valid_bar = tqdm(valid_loader, total=len(valid_loader), 
-                         desc=f"Epoch {epoch}/{args.train.epochs} [valid]", dynamic_ncols=True)
+                         desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
         
         with torch.no_grad():
             
-            autocast_ctx = torch.amp.autocast(device_type=device)
+            # autocast_ctx = torch.amp.autocast(device_type=device)
             
             for sar, opt in valid_bar:
                 
-                sar = sar.to(device)
-                opt = opt.to(device)
+                sar = sar.to(device, dtype=torch.float32)
+                opt = opt.to(device, dtype=torch.float32)
 
                 batch = sar.shape[0]
                 n_images += batch
@@ -156,6 +159,7 @@ def train(args: DictConfig):
                 valid_loss_sum += valid_loss.item() * batch
                 
                 # 图像质量验证
+                # opt_pred  = flow.integrate_flow(ema_model, sar, args.train.eval_steps, device=device)
                 opt_pred  = flow.integrate_flow(ema_model, sar, args.train.eval_steps, device=device)
                 opt_pred  = opt_pred.clamp(0, 1)
                 opt_clamp = opt.clamp(0, 1)
