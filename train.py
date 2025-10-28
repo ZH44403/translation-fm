@@ -1,17 +1,21 @@
 import torch
 import hydra
 import pyiqa
+import random
 
 from tqdm import tqdm
+from pathlib import Path
+from torch import optim, nn
 from torch.utils.data import DataLoader, Dataset
 from omegaconf import DictConfig, OmegaConf
+from hydra.core.hydra_config import HydraConfig
 
 from data import dataset
 from models import flow, unet
-from utils import dist, losses, metrics, utils
+from utils import dist, losses, metrics, utils, sample
 
-import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+# import os 
+# os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 # hydra的装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
@@ -20,20 +24,16 @@ def train(args: DictConfig):
     
     device = args.device
     utils.set_seed(args.seed)
+    log_dir = Path(HydraConfig.get().runtime.output_dir)
     
     train_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
                                      data_type='train', split_ratio=args.dataset.split_ratio)
     valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
                                      data_type='valid', split_ratio=args.dataset.split_ratio)
     # debug
-    # train_sub = torch.utils.data.Subset(train_set, range(32))
-    # valid_sub = torch.utils.data.Subset(valid_set, range(32))
-    
-    # train_loader = DataLoader(train_sub, batch_size=args.dataloader.batch_size, 
-    #                           shuffle=True, num_workers=args.dataloader.num_workers)
-    # valid_loader = DataLoader(valid_sub, batch_size=args.dataloader.batch_size,
-    #                           shuffle=False, num_workers=args.dataloader.num_workers)
-    
+    # train_set = torch.utils.data.Subset(train_set, range(32))
+    # valid_set = torch.utils.data.Subset(valid_set, range(32))
+     
     train_loader = DataLoader(train_set, batch_size=args.dataloader.batch_size, 
                               shuffle=True, num_workers=args.dataloader.num_workers)
     valid_loader = DataLoader(valid_set, batch_size=args.dataloader.batch_size,
@@ -49,17 +49,19 @@ def train(args: DictConfig):
                            num_res_blocks=args.model.num_res_blocks, ).to(device).float()
     # model = torch.compile(model)
     
-    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(0.9999))
+    ema_model = optim.swa_utils.AveragedModel(model, multi_avg_fn=optim.swa_utils.get_ema_multi_avg_fn(0.9999))
     
     flow_model = flow.GaussianBridgeFlow(args.flow.sigma_min)
     
-    mse = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.train.min_lr)
+    mse = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.train.min_lr)
     scaler = torch.amp.GradScaler()
     
     psnr = pyiqa.create_metric('psnr', device=device, test_y_channel=False)
     lpips = pyiqa.create_metric('lpips', device=device)
     msssim = pyiqa.create_metric('ms_ssim', device=device, test_y_channel=False)
+    
+    sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=args.train.sample_num))
     
     # checkpoint
     
@@ -107,7 +109,7 @@ def train(args: DictConfig):
             if (i+1) % accumulate_steps == 0 or (i+1) == len(train_loader):
                 
                 # scaler.unscale_(optimizer)
-                grad = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                grad = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 # scaler.step(optimizer)
                 # scaler.update()
                 optimizer.step()
@@ -123,7 +125,6 @@ def train(args: DictConfig):
             train_loss_sum += train_loss.item() * accumulate_steps
             train_bar.set_postfix(loss=f'{train_loss_sum / (i+1):.4f}', )
         
-        
         # validation
         model.eval()
         ema_model.eval()
@@ -135,14 +136,14 @@ def train(args: DictConfig):
         valid_lpips_sum = 0.0
         valid_mmssim_sum = 0.0
         
-        valid_bar = tqdm(valid_loader, total=len(valid_loader), 
+        valid_bar = tqdm(enumerate(valid_loader), total=len(valid_loader), 
                          desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
         
         with torch.no_grad():
             
             # autocast_ctx = torch.amp.autocast(device_type=device)
             
-            for sar, opt in valid_bar:
+            for i, (sar, opt) in valid_bar:
                 
                 sar = sar.to(device, dtype=torch.float32)
                 opt = opt.to(device, dtype=torch.float32)
@@ -172,6 +173,10 @@ def train(args: DictConfig):
                 avg_psnr   = valid_psnr_sum / n_images
                 avg_lpips  = valid_lpips_sum / n_images
                 avg_mmssim = valid_mmssim_sum / n_images
+                
+                
+                sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
+                                    sample_idx_list, valid_set, log_dir, every_n_epochs=args.train.sample_interval)
                 
                 valid_bar.set_postfix(v_loss=f'{avg_loss:.4f}', psnr=f'{avg_psnr:.2f}', 
                                       lpips=f'{avg_lpips:.4f}', mmssim=f'{avg_mmssim:.4f}')

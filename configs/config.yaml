@@ -23,10 +23,12 @@ flow:
 
 train:
   epochs: 500
-  min_lr: 5e-4
-  max_lr: 5e-4
+  min_lr: 1e-4
+  max_lr: 1e-4
   weight_decay: 1e-4
   accumulate_steps: 2
   warmup_steps: 1000
   max_steps: 400000
   eval_steps: 50
+  sample_num: 20
+  sample_interval: 3
