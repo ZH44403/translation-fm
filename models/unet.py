@@ -6,7 +6,7 @@ class UNetModel(nn.Module):
     
     def __init__(self, image_size, in_channels, model_channels, out_channels, 
                  num_res_blocks=2, attention_resolutions=(16, 8), num_heads=1, num_head_channels=-1, num_heads_upsample=-1,
-                 channel_mult=(1, 2, 4, 8), dims=2, dropout=.0, num_classes=None, 
+                 channel_mult=(1, 2, 4, 8), dims=2, dropout=0.1, num_classes=None, 
                  conv_resample=True, new_att_order=False):
         super().__init__()
         

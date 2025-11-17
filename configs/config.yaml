@@ -11,24 +11,31 @@ dataset:
 
 dataloader:
   num_workers: 8
-  batch_size: 4
+  batch_size: 8
 
 
 model:
   name: 'unet'
-  num_res_blocks: 2
+  num_res_blocks: 3
+  num_channels: 64
 
 flow:
   sigma_min: 1e-4
+  eval_steps: 50
 
 train:
-  epochs: 500
+  epochs: 5000
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
   accumulate_steps: 2
-  warmup_steps: 1000
-  max_steps: 400000
-  eval_steps: 50
-  sample_num: 20
-  sample_interval: 3
+  # warmup_steps: 1000
+  # max_steps: 400000
+  
+
+valid:
+  valid_interval: 10
+  sample_num: 40
+  sample_interval: 10
+  dt_schedule: 'linear'
+  integrate_method: 'odeint'

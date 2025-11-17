@@ -27,7 +27,7 @@ def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
         return
     
     save_dir = log_dir / 'samples'
-    snap_dir = save_dir / f"epoch_{epoch:03d}"
+    snap_dir = save_dir / f"epoch_{epoch:04d}"
     snap_dir.mkdir(parents=True, exist_ok=True)
     
     # sar, opt, pred生成一张图片

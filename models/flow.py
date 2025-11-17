@@ -48,6 +48,16 @@ class GaussianBridgeFlow:
         return x_t, dx_t
     
 
+class PairInterpolantFlow:
+    
+    def step(self, t: torch.Tensor, x_0: torch.Tensor, x_1: torch.Tensor) -> torch.Tensor:
+        
+        t = t.reshape(-1, *([1] * (x_1.ndim - 1))).expand_as(x_1)
+        x_t = (1.0 - t) * x_0 + t * x_1
+        dx_t = x_1 - x_0
+        
+        return x_t, dx_t
+
 @torch.inference_mode()
 def integrate_flow(model: nn.Module, x_0: torch.Tensor, steps: int, device: torch.device,
                    method: Literal['euler', 'heun', 'odeint']='odeint', dt_schedule: Literal['linear', 'cosine']='linear',
