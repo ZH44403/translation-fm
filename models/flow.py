@@ -58,22 +58,22 @@ class PairInterpolantFlow:
         
         return x_t, dx_t
 
-@torch.inference_mode()
+# @torch.inference_mode()
 def integrate_flow(model: nn.Module, x_0: torch.Tensor, steps: int, device: torch.device,
                    method: Literal['euler', 'heun', 'odeint']='odeint', dt_schedule: Literal['linear', 'cosine']='linear',
                    rtol: float=1e-3, atol: float=1e-4) -> torch.Tensor:
 
     if method == 'euler':
-        return integrate_flow_euler(model, x_0, steps, device, dt_schedule)
+        return _integrate_flow_euler(model, x_0, steps, device, dt_schedule)
     elif method == 'heun':
-        return integrate_flow_heun(model, x_0, steps, device, dt_schedule)
+        return _integrate_flow_heun(model, x_0, steps, device, dt_schedule)
     elif method == 'odeint':
-        return integrate_flow_odeint(model, x_0, device, rtol, atol)
+        return _integrate_flow_odeint(model, x_0, device, rtol, atol)
     else: raise ValueError(f'Unknown method: {method}')
 
 
-@torch.inference_mode()
-def integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int, 
+# @torch.inference_mode()
+def _integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int, 
                          device: torch.device, dt_schedule: Literal['linear', 'cosine']='linear') -> torch.Tensor:
     
     assert steps > 0
@@ -95,8 +95,8 @@ def integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int,
     return x
         
 
-@torch.inference_mode()
-def integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int, 
+# @torch.inference_mode()
+def _integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int, 
                          device: torch.device, dt_schedule: Literal['linear', 'cosine']) -> torch.Tensor:
     
     model = _unwrap_model(model).eval()
@@ -119,8 +119,8 @@ def integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int,
         x = x + 0.5 * dt * (k_1 + k_2)
         
         
-@torch.inference_mode()
-def integrate_flow_odeint(model: nn.Module, x_0: torch.Tensor, device: torch.device,
+# @torch.inference_mode()
+def _integrate_flow_odeint(model: nn.Module, x_0: torch.Tensor, device: torch.device,
                           rtol: float=1e-3, atol: float=1e-4, ode_method: str='dopri5') -> torch.Tensor:
     
     model = _unwrap_model(model).eval()

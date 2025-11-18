@@ -1,4 +1,8 @@
-# training_configurations
+defaults:
+  - hydra        # 加载同目录下的 hydra.yaml
+  - _self_       # 保留当前文件自身
+
+# training configurations
 
 device: 'cuda'
 seed: 114514
@@ -16,12 +20,14 @@ dataloader:
 
 model:
   name: 'unet'
-  num_res_blocks: 3
+  num_res_blocks: 2
   num_channels: 64
 
 flow:
   sigma_min: 1e-4
   eval_steps: 50
+  integrate_method: 'odeint'
+  dt_schedule: 'linear'
 
 train:
   epochs: 5000
@@ -34,8 +40,8 @@ train:
   
 
 valid:
-  valid_interval: 10
+  valid_interval: 2
   sample_num: 40
   sample_interval: 10
-  dt_schedule: 'linear'
-  integrate_method: 'odeint'
+  
+  

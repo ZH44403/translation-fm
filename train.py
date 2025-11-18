@@ -2,6 +2,7 @@ import torch
 import hydra
 import pyiqa
 import random
+import logging
 
 from tqdm import tqdm
 from pathlib import Path
@@ -14,17 +15,22 @@ from data import dataset
 from models import flow, unet
 from utils import dist, losses, metrics, utils, sample
 
-# import os 
-# os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+import os 
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 # hydra的装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
 def train(args: DictConfig):
     # cfg即配置文件中的内容
     
+    log = logging.getLogger(__name__)
+    
     device = args.device
     utils.set_seed(args.seed)
     log_dir = Path(HydraConfig.get().runtime.output_dir)
+    checkpoint_dir = log_dir / 'checkpoint'
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    best_score = float('-inf')
     
     train_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
                                      data_type='train', split_ratio=args.dataset.split_ratio)
@@ -54,23 +60,18 @@ def train(args: DictConfig):
     # flow_model = flow.GaussianBridgeFlow(args.flow.sigma_min)
     flow_model = flow.PairInterpolantFlow()
     
-    # vel_loss = nn.MSELoss()
-    vel_loss = losses.CharbonnierLoss(eps=1e-3)
+    # velocity_loss = nn.MSELoss()
+    velocity_loss = losses.CharbonnierLoss(eps=1e-3)
     
     optimizer = optim.Adam(model.parameters(), lr=args.train.min_lr)
     scaler = torch.amp.GradScaler()
     
-    psnr = pyiqa.create_metric('psnr', device=device, test_y_channel=False)
+    psnr  = pyiqa.create_metric('psnr', device=device, test_y_channel=False)
+    ssim  = pyiqa.create_metric('ssim', device=device, test_y_channel=False)
     lpips = pyiqa.create_metric('lpips', device=device)
-    # msssim = pyiqa.create_metric('ms_ssim', device=device, test_y_channel=False)
-    ssim = pyiqa.create_metric('ssim', device=device, test_y_channel=False)
-
-    # checkpoint
+    
     
     sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=args.valid.sample_num))
-    
-    # checkpoint
-    
     
     current_epoch = 1
     step = 0
@@ -91,24 +92,20 @@ def train(args: DictConfig):
         for i, (sar, opt) in train_bar:
             
             sar = sar.to(device, dtype=torch.float32)
-            opt = opt.to(device, dtype=torch.float32)
-            
+            opt = opt.to(device, dtype=torch.float32)   
+
             if i % accumulate_steps == 0:
                 optimizer.zero_grad(set_to_none=True)
-            
-            # with torch.amp.autocast(device_type=device):
                 
-            t = torch.rand(sar.shape[0], device=device)
-            
-            # generate from noise
-            # x_0 = torch.randn_like(sar)
-            
+            t = torch.rand(sar.shape[0], device=device)            
             assert sar.shape == opt.shape
+            
             x_t, v_true = flow_model.step(t, sar, opt)
             v_pred = model(t, x_t)
             
-            train_loss = vel_loss(v_pred, v_true) / accumulate_steps
-            
+            loss_velocity = velocity_loss(v_pred, v_true)
+            train_loss = loss_velocity / accumulate_steps
+
             # scaler.scale(train_loss).backward()
             train_loss.backward()
             
@@ -119,7 +116,6 @@ def train(args: DictConfig):
                 # scaler.step(optimizer)
                 # scaler.update()
                 optimizer.step()
-                
                 ema_model.update_parameters(model)
                 
                 # learning rate schedule
@@ -131,6 +127,9 @@ def train(args: DictConfig):
             train_loss_sum += train_loss.item() * accumulate_steps
             train_bar.set_postfix(loss=f'{train_loss_sum / (i+1):.4f}', )
         
+        avg_train_loss = train_loss_sum / len(train_loader)
+        log.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}')
+        
         # 每隔valid_interval个epoch进行一次验证，节省时间
         if epoch % args.valid.valid_interval == 0:
         # validation
@@ -139,13 +138,13 @@ def train(args: DictConfig):
             
             n_images = 0
             
-            valid_loss_sum = 0.0
-            valid_psnr_sum = 0.0
+            valid_loss_sum  = 0.0
+            valid_psnr_sum  = 0.0
             valid_lpips_sum = 0.0
-            valid_ssim_sum = 0.0
+            valid_ssim_sum  = 0.0
             
             valid_bar = tqdm(enumerate(valid_loader), total=len(valid_loader), 
-                            desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
+                             desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
             
             with torch.no_grad():
                 
@@ -164,31 +163,59 @@ def train(args: DictConfig):
                     x_t, v_true = flow_model.step(t, sar, opt)
                     v_pred = model(t, x_t)
                     
-                    valid_loss = vel_loss(v_pred, v_true)
+                    valid_loss = velocity_loss(v_pred, v_true)
                     valid_loss_sum += valid_loss.item() * batch
                     
                     # 图像质量验证
                     opt_pred  = flow.integrate_flow(ema_model, sar, args.flow.eval_steps, device=device, 
-                                                    method=args.valid.integrate_method, dt_schedule=args.valid.dt_schedule)
+                                                    method=args.flow.integrate_method, 
+                                                    dt_schedule=args.flow.dt_schedule)
+                    
                     opt_pred  = opt_pred.clamp(0, 1)
                     opt_clamp = opt.clamp(0, 1)
                     
-                    valid_psnr_sum   += psnr(opt_pred, opt_clamp).sum().item()
-                    valid_lpips_sum  += lpips(opt_pred, opt_clamp).sum().item()
-                    valid_ssim_sum   += ssim(opt_pred, opt_clamp).sum().item()
+                    valid_psnr_sum  += psnr(opt_pred, opt_clamp).sum().item()
+                    valid_lpips_sum += lpips(opt_pred, opt_clamp).sum().item()
+                    valid_ssim_sum  += ssim(opt_pred, opt_clamp).sum().item()
                     
-                    avg_loss   = valid_loss_sum / n_images
-                    avg_psnr   = valid_psnr_sum / n_images
-                    avg_lpips  = valid_lpips_sum / n_images
-                    avg_ssim   = valid_ssim_sum / n_images
-                    
+                 
                     
                     sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
                                         sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
                     
-                    valid_bar.set_postfix(v_loss=f'{avg_loss:.4f}', psnr=f'{avg_psnr:.2f}', 
-                                        lpips=f'{avg_lpips:.4f}', ssim=f'{avg_ssim:.4f}')
-        
+                    valid_bar.set_postfix(v_loss=f'{valid_loss_sum / n_images:.4f}', psnr=f'{valid_psnr_sum / n_images:.2f}', 
+                                        lpips=f'{valid_lpips_sum / n_images:.4f}', ssim=f'{valid_ssim_sum / n_images:.4f}')
+                
+                # ----------- end of iteration ------------
+                
+                avg_loss  = valid_loss_sum / n_images
+                avg_psnr  = valid_psnr_sum / n_images
+                avg_lpips = valid_lpips_sum / n_images
+                avg_ssim  = valid_ssim_sum / n_images
+                
+                valid_score = utils.compute_valid_score(avg_psnr, avg_ssim, avg_lpips)
+                    
+                metrics_epoch = {
+                    'valid_loss': avg_loss,
+                    'psnr': avg_psnr,
+                    'lpips': avg_lpips,
+                    'ssim': avg_ssim,
+                }
+                
+                if valid_score > best_score:
+                    
+                    best_score = valid_score
+                    utils.save_checkpoint(checkpoint_dir/'best.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
+                    log.info(f'New best score: {best_score:.4f}')
+                    
+                log.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
+            
+            # ----------- end of epoch ------------
+            
+            utils.save_checkpoint(checkpoint_dir/'last.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
+            
+
+
 if __name__ == '__main__':
     
     train()

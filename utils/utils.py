@@ -2,7 +2,7 @@ import torch
 import random
 import numpy as np
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 
 def set_seed(seed: int) -> None:
@@ -34,25 +34,38 @@ def get_lr(args: DictConfig, step: int) -> float:
     return max(min_lr, min(lr, max_lr))
 
 
+def save_checkpoint(path, epoch, model, ema_model, optimizer, args, Metrics=None):
+    
+    state = {
+        'epoch': epoch,
+        'model': model.state_dict(),
+        'ema_model': ema_model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'args': OmegaConf.to_container(args, resolve=True),
+    }
+
+    if Metrics is not None:
+        state['Metrics'] = Metrics
+
+    torch.save(state, path)
+
+
 def load_checkpoint(path, model, optimizer=None, scaler=None, ema_model=None):
     
     checkpoint = torch.load(path, weights_only=True)
     
-    step  = int(checkpoint['step'])
     epoch = int(checkpoint['epoch'])
 
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(checkpoint['model'])
     model.eval()
     
-    if optimizer is not None:
-        optimizer.load_state_dict(checkpoint['optim_state_dict'])
-
-    if scaler is not None:
-        scaler.load_state_dict(checkpoint['scaler_state_dict'])
-
-    if ema_model is not None:
-        ema_model.load_state_dict(checkpoint['ema_model_state_dict'])
-        ema_model.eval()
+    ema_model.load_state_dict(checkpoint['ema_model'])
+    ema_model.eval()
+    
+    optimizer.load_state_dict(checkpoint['optimizer'])    
         
+    return epoch, model, optimizer, ema_model
 
-    return step, epoch, model, optimizer, scaler, ema_model
+
+def compute_valid_score(psnr, ssim, lpips):
+    return psnr + 50.0 * ssim - 10.0 * lpips
