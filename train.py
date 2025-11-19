@@ -16,18 +16,20 @@ from models import flow, unet
 from utils import dist, losses, metrics, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 
 # hydra的装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
 def train(args: DictConfig):
     # cfg即配置文件中的内容
     
-    log = logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
     
     device = args.device
     utils.set_seed(args.seed)
+    
     log_dir = Path(HydraConfig.get().runtime.output_dir)
+    
     checkpoint_dir = log_dir / 'checkpoint'
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_score = float('-inf')
@@ -67,16 +69,15 @@ def train(args: DictConfig):
     scaler = torch.amp.GradScaler()
     
     psnr  = pyiqa.create_metric('psnr', device=device, test_y_channel=False)
-    ssim  = pyiqa.create_metric('ssim', device=device, test_y_channel=False)
+    ssim  = pyiqa.create_metric('ssimc', device=device)
     lpips = pyiqa.create_metric('lpips', device=device)
     
     
     sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=args.valid.sample_num))
     
     current_epoch = 1
-    step = 0
 
-    accumulate_steps = args.train.accumulate_steps
+    # accumulate_steps = args.train.accumulate_steps
     
     for epoch in range(current_epoch, (args.train.epochs+1)):
         
@@ -94,41 +95,40 @@ def train(args: DictConfig):
             sar = sar.to(device, dtype=torch.float32)
             opt = opt.to(device, dtype=torch.float32)   
 
-            if i % accumulate_steps == 0:
-                optimizer.zero_grad(set_to_none=True)
+            # if i % accumulate_steps == 0:
+            optimizer.zero_grad(set_to_none=True)
                 
             t = torch.rand(sar.shape[0], device=device)            
             assert sar.shape == opt.shape
             
             x_t, v_true = flow_model.step(t, sar, opt)
             v_pred = model(t, x_t)
-            
             loss_velocity = velocity_loss(v_pred, v_true)
-            train_loss = loss_velocity / accumulate_steps
-
+            
+            # train_loss = loss_velocity / accumulate_steps
+            train_loss = loss_velocity
             # scaler.scale(train_loss).backward()
             train_loss.backward()
             
-            if (i+1) % accumulate_steps == 0 or (i+1) == len(train_loader):
+            # if (i+1) % accumulate_steps == 0 or (i+1) == len(train_loader):
                 
-                # scaler.unscale_(optimizer)
-                grad = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                # scaler.step(optimizer)
-                # scaler.update()
-                optimizer.step()
-                ema_model.update_parameters(model)
+            # scaler.unscale_(optimizer)
+            grad = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # scaler.step(optimizer)
+            # scaler.update()
+            optimizer.step()
+            ema_model.update_parameters(model)
                 
                 # learning rate schedule
                 # for pg in optimizer.param_groups:
                 #     pg['lr'] = utils.get_lr(args, step) 
-
-                step += 1
             
-            train_loss_sum += train_loss.item() * accumulate_steps
+            # train_loss_sum += train_loss.item() * accumulate_steps
+            train_loss_sum += train_loss.item()
             train_bar.set_postfix(loss=f'{train_loss_sum / (i+1):.4f}', )
         
         avg_train_loss = train_loss_sum / len(train_loader)
-        log.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}')
+        logger.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}')
         
         # 每隔valid_interval个epoch进行一次验证，节省时间
         if epoch % args.valid.valid_interval == 0:
@@ -201,20 +201,18 @@ def train(args: DictConfig):
                     'lpips': avg_lpips,
                     'ssim': avg_ssim,
                 }
+                logger.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
                 
                 if valid_score > best_score:
                     
                     best_score = valid_score
                     utils.save_checkpoint(checkpoint_dir/'best.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
-                    log.info(f'New best score: {best_score:.4f}')
-                    
-                log.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
+                    logger.info(f'New best score: {best_score:.4f}')
             
             # ----------- end of epoch ------------
             
             utils.save_checkpoint(checkpoint_dir/'last.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
             
-
 
 if __name__ == '__main__':
     

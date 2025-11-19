@@ -79,8 +79,7 @@ def _integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int,
     assert steps > 0
     
     model = _unwrap_model(model).eval()
-    x_0 = x_0.to(device, dtype=torch.float32, memory_format=torch.channels_last)
-    x = x_0.contiguous(memory_format=torch.channels_last)
+    x = x_0.to(device, dtype=torch.float32, memory_format=torch.channels_last)
     
     for i in range(steps):
         
@@ -149,7 +148,7 @@ def _integrate_flow_odeint(model: nn.Module, x_0: torch.Tensor, device: torch.de
 def _t_schedule(i: int, steps: int, schedule: Literal['linear', 'cosine']) -> float:
     
     if schedule == 'linear':
-        return i / float(schedule)
+        return i / float(steps)
     else:
         return 1.0 - math.cos(0.5 * math.pi * (i / float(steps))) ** 2
         

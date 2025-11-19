@@ -25,9 +25,9 @@ model:
 
 flow:
   sigma_min: 1e-4
-  eval_steps: 50
-  integrate_method: 'odeint'
-  dt_schedule: 'linear'
+  eval_steps: 40
+  integrate_method: 'euler'    # Literal['euler', 'heun', 'odeint']
+  dt_schedule: 'linear'         # Literal['linear', 'cosine']
 
 train:
   epochs: 5000

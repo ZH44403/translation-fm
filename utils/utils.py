@@ -34,6 +34,9 @@ def get_lr(args: DictConfig, step: int) -> float:
     return max(min_lr, min(lr, max_lr))
 
 
+
+
+
 def save_checkpoint(path, epoch, model, ema_model, optimizer, args, Metrics=None):
     
     state = {
@@ -50,21 +53,40 @@ def save_checkpoint(path, epoch, model, ema_model, optimizer, args, Metrics=None
     torch.save(state, path)
 
 
-def load_checkpoint(path, model, optimizer=None, scaler=None, ema_model=None):
+def load_checkpoint(path, ema_model=None, model=None, optimizer=None):
     
-    checkpoint = torch.load(path, weights_only=True)
+    checkpoint = torch.load(path, map_location='cpu')
     
     epoch = int(checkpoint['epoch'])
-
-    model.load_state_dict(checkpoint['model'])
-    model.eval()
     
-    ema_model.load_state_dict(checkpoint['ema_model'])
-    ema_model.eval()
-    
-    optimizer.load_state_dict(checkpoint['optimizer'])    
+    if ema_model is not None:
+        ema_model.load_state_dict(ema_to_model(checkpoint['ema_model']))
         
-    return epoch, model, optimizer, ema_model
+    if model is not None:
+        model.load_state_dict(checkpoint['model'])
+    
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer'])    
+        
+    return epoch+1, ema_model, model, optimizer
+
+
+# 将ema_state_dict中的键值转换为model_state_dict的格式
+def ema_to_model(ema_state_dict):
+    
+    new_state_dict = {}
+    
+    for k, v in ema_state_dict.items():
+        
+        if k == 'n_averaged':
+            continue
+        
+        if k.startswith('module.'):
+            k = k[len('module.'):]
+            
+        new_state_dict[k] = v
+
+    return new_state_dict
 
 
 def compute_valid_score(psnr, ssim, lpips):
