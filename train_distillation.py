@@ -16,6 +16,9 @@ from data import dataset
 from models import flow, unet
 from utils import dist, losses, utils, sample
 
+import os 
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+
 
 # hydra的装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config_distillation', version_base='1.3')
@@ -40,8 +43,8 @@ def train(args: DictConfig):
                                      data_type='valid', split_ratio=args.dataset.split_ratio)
     
     # only use for debugging
-    train_set = torch.utils.data.Subset(train_set, range(1280))
-    valid_set = torch.utils.data.Subset(valid_set, range(160))
+    # train_set = torch.utils.data.Subset(train_set, range(40))
+    # valid_set = torch.utils.data.Subset(valid_set, range(20))
     
     train_loader = DataLoader(train_set, batch_size=args.dataloader.batch_size, 
                               shuffle=True, num_workers=args.dataloader.num_workers)
@@ -83,7 +86,7 @@ def train(args: DictConfig):
     ssim  = pyiqa.create_metric('ssimc', device=device)
     lpips = pyiqa.create_metric('lpips', device=device)
     
-    sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=args.valid.sample_num))
+    sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=min(len(valid_set), args.valid.sample_num)))
     # accumulate_steps = args.train.accumulate_steps
 
     for epoch in range(current_epoch, (args.train.epochs+1)):
@@ -108,13 +111,15 @@ def train(args: DictConfig):
             optimizer.zero_grad(set_to_none=True)
             
             # velocity loss (可选)
-            loss_vel = torch.tensor(0.0, device=device)
             if args.lambdas.velocity > 0.0:
                 
                 t = torch.rand(sar.shape[0], device=device)
                 x_t, v_true = flow_model.step(t, sar, opt)
                 v_pred = distillation_model(t, x_t)
                 loss_velocity = velocity_loss(v_pred, v_true)
+                
+            else:
+                loss_velocity = torch.tensor(0.0, device=device)
             
             # 阶段一采样, 不反向传播
             with torch.no_grad():
@@ -134,6 +139,7 @@ def train(args: DictConfig):
                 args.lambdas.lpips        * loss_lpips
             )
             
+            # 反向传播的是加权的loss
             loss.backward()
             optimizer.step()
             distillation_ema.update_parameters(distillation_model)
@@ -146,8 +152,8 @@ def train(args: DictConfig):
             train_bar.set_postfix(
                 loss  = f'{train_loss/(i+1):.4f}',
                 vel   = f'{train_loss_velocity/(i+1):.4f}',
+                lpips = f'{train_loss_lpips/(i+1):.4f}',
                 dist  = f'{train_loss_distillation/(i+1):.4f}',
-                lpips = f'{train_loss_lpips/(i+1):.4f}'
             )
         
         avg_train_loss              = train_loss              / len(train_loader)
@@ -155,10 +161,85 @@ def train(args: DictConfig):
         avg_train_loss_distillation = train_loss_distillation / len(train_loader)
         avg_train_loss_lpips        = train_loss_lpips        / len(train_loader)
         
-        logger.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}, vel {avg_train_loss_velocity:.4f}, \
-                                             dist {avg_train_loss_distillation:.4f}, lpips {avg_train_loss_lpips:.4f}')
+        logger.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}, vel {avg_train_loss_velocity:.4f}, lpips {avg_train_loss_lpips:.4f}, dist {avg_train_loss_distillation:.4f}')
         
+        if epoch % args.valid.valid_interval != 0:
+            continue
         
+        distillation_model.eval()
+        distillation_ema.eval()
+        
+        valid_loss          = 0.0
+        valid_loss_velocity = 0.0
+        valid_loss_lpips    = 0.0
+        
+        valid_psnr  = 0.0
+        valid_lpips = 0.0
+        valid_ssim  = 0.0
+        
+        valid_bar = tqdm(enumerate(valid_loader), total=len(valid_loader), 
+                         desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
+        
+        with torch.no_grad():
+            
+            for i, (sar, opt) in valid_bar:
+                
+                sar = sar.to(device, dtype=torch.float32)
+                opt = opt.to(device, dtype=torch.float32)
+                
+                opt_pred = flow.integrate_flow(distillation_ema, sar, args.flow.distillation_steps, device=device,
+                                              method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
+                
+                # velocity loss (可选)
+                if args.lambdas.velocity > 0.0:
+                    
+                    t = torch.rand(sar.shape[0], device=device)
+                    x_t, v_true = flow_model.step(t, sar, opt)
+                    v_pred = distillation_model(t, x_t)
+                    loss_velocity = velocity_loss(v_pred, v_true)
+                    
+                else:
+                    loss_velocity = torch.tensor(0.0, device=device)
+                
+                loss_lpips = lpips_loss(opt_pred, opt)
+                
+                valid_loss_velocity += loss_velocity.item()
+                valid_loss_lpips    += loss_lpips.item()
+                
+                valid_psnr  += torch.mean(psnr(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                valid_lpips += torch.mean(lpips(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                valid_ssim  += torch.mean(ssim(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+
+                sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
+                                    sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
+                
+                valid_bar.set_postfix(v_loss=f'{valid_loss/(i+1):.4f}', psnr=f'{valid_psnr/(i+1):.2f}', 
+                                      lpips=f'{valid_lpips/(i+1):.4f}', ssim=f'{valid_ssim/(i+1):.4f}')
+                
+            avg_loss  = valid_loss  / len(valid_loader)
+            avg_psnr  = valid_psnr  / len(valid_loader)
+            avg_lpips = valid_lpips / len(valid_loader)
+            avg_ssim  = valid_ssim  / len(valid_loader)
+
+            valid_score = utils.compute_valid_score(avg_psnr, avg_ssim, avg_lpips)
+                
+            metrics_epoch = {
+                'valid_loss': avg_loss,
+                'psnr': avg_psnr,
+                'lpips': avg_lpips,
+                'ssim': avg_ssim,
+            }
+            logger.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
+            
+            if valid_score > best_score:
+                
+                best_score = valid_score
+                utils.save_checkpoint(checkpoint_dir/'best_distillation.pth', epoch, 
+                                      distillation_model, distillation_ema, optimizer, args, metrics_epoch)
+                logger.info(f'New best score: {best_score:.4f}')
+                
+        utils.save_checkpoint(checkpoint_dir/'best_distillation.pth', epoch, 
+                              distillation_model, distillation_ema, optimizer, args, metrics_epoch)
 
 if __name__ == '__main__':
     

@@ -55,6 +55,6 @@ train:
   
 
 valid:
-  valid_interval: 2
-  sample_num: 40
-  sample_interval: 10
+  valid_interval: 1
+  sample_num: 100
+  sample_interval: 1

@@ -39,8 +39,8 @@ def train(args: DictConfig):
     valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
                                      data_type='valid', split_ratio=args.dataset.split_ratio)
     # debug
-    # train_set = torch.utils.data.Subset(train_set, range(1280))
-    # valid_set = torch.utils.data.Subset(valid_set, range(160))
+    train_set = torch.utils.data.Subset(train_set, range(1280))
+    valid_set = torch.utils.data.Subset(valid_set, range(160))
      
     train_loader = DataLoader(train_set, batch_size=args.dataloader.batch_size, 
                               shuffle=True, num_workers=args.dataloader.num_workers)
@@ -131,87 +131,78 @@ def train(args: DictConfig):
         logger.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}')
         
         # 每隔valid_interval个epoch进行一次验证，节省时间
-        if epoch % args.valid.valid_interval == 0:
+        if epoch % args.valid.valid_interval != 0:
+            continue
         # validation
-            model.eval()
-            ema_model.eval()
+        model.eval()
+        ema_model.eval()
+        
+        valid_loss  = 0.0
+        valid_psnr  = 0.0
+        valid_lpips = 0.0
+        valid_ssim  = 0.0
+        
+        valid_bar = tqdm(enumerate(valid_loader), total=len(valid_loader), 
+                            desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
+        
+        with torch.no_grad():
             
-            n_images = 0
+            # autocast_ctx = torch.amp.autocast(device_type=device)
             
-            valid_loss_sum  = 0.0
-            valid_psnr_sum  = 0.0
-            valid_lpips_sum = 0.0
-            valid_ssim_sum  = 0.0
+            for i, (sar, opt) in valid_bar:
+                
+                sar = sar.to(device, dtype=torch.float32)
+                opt = opt.to(device, dtype=torch.float32)
+                
+                # 速度场验证
+                t = torch.rand(sar.shape[0], device=device)
+                x_t, v_true = flow_model.step(t, sar, opt)
+                v_pred = model(t, x_t)
+                
+                valid_loss_velocity = velocity_loss(v_pred, v_true)
+                valid_loss += valid_loss_velocity.item()
+                
+                # 图像质量验证
+                opt_pred  = flow.integrate_flow(ema_model, sar, args.flow.eval_steps, device=device, 
+                                                method=args.flow.integrate_method, 
+                                                dt_schedule=args.flow.dt_schedule)
+                
+                valid_psnr  += torch.mean(psnr(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                valid_lpips += torch.mean(lpips(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                valid_ssim  += torch.mean(ssim(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                
+                sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
+                                    sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
+                
+                valid_bar.set_postfix(v_loss=f'{valid_loss/(i+1):.4f}', psnr=f'{valid_psnr/(i+1):.2f}', 
+                                    lpips=f'{valid_lpips/(i+1):.4f}', ssim=f'{valid_ssim/(i+1):.4f}')
             
-            valid_bar = tqdm(enumerate(valid_loader), total=len(valid_loader), 
-                             desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
+            # ----------- end of iteration ------------
             
-            with torch.no_grad():
-                
-                # autocast_ctx = torch.amp.autocast(device_type=device)
-                
-                for i, (sar, opt) in valid_bar:
-                    
-                    sar = sar.to(device, dtype=torch.float32)
-                    opt = opt.to(device, dtype=torch.float32)
-
-                    batch = sar.shape[0]
-                    n_images += batch
-                    
-                    # 速度场验证
-                    t = torch.rand(batch, device=device)
-                    x_t, v_true = flow_model.step(t, sar, opt)
-                    v_pred = model(t, x_t)
-                    
-                    valid_loss = velocity_loss(v_pred, v_true)
-                    valid_loss_sum += valid_loss.item() * batch
-                    
-                    # 图像质量验证
-                    opt_pred  = flow.integrate_flow(ema_model, sar, args.flow.eval_steps, device=device, 
-                                                    method=args.flow.integrate_method, 
-                                                    dt_schedule=args.flow.dt_schedule)
-                    
-                    opt_pred  = opt_pred.clamp(0, 1)
-                    opt_clamp = opt.clamp(0, 1)
-                    
-                    valid_psnr_sum  += psnr(opt_pred, opt_clamp).sum().item()
-                    valid_lpips_sum += lpips(opt_pred, opt_clamp).sum().item()
-                    valid_ssim_sum  += ssim(opt_pred, opt_clamp).sum().item()
-                    
-                 
-                    
-                    sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
-                                        sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
-                    
-                    valid_bar.set_postfix(v_loss=f'{valid_loss_sum / n_images:.4f}', psnr=f'{valid_psnr_sum / n_images:.2f}', 
-                                        lpips=f'{valid_lpips_sum / n_images:.4f}', ssim=f'{valid_ssim_sum / n_images:.4f}')
-                
-                # ----------- end of iteration ------------
-                
-                avg_loss  = valid_loss_sum / n_images
-                avg_psnr  = valid_psnr_sum / n_images
-                avg_lpips = valid_lpips_sum / n_images
-                avg_ssim  = valid_ssim_sum / n_images
-                
-                valid_score = utils.compute_valid_score(avg_psnr, avg_ssim, avg_lpips)
-                    
-                metrics_epoch = {
-                    'valid_loss': avg_loss,
-                    'psnr': avg_psnr,
-                    'lpips': avg_lpips,
-                    'ssim': avg_ssim,
-                }
-                logger.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
-                
-                if valid_score > best_score:
-                    
-                    best_score = valid_score
-                    utils.save_checkpoint(checkpoint_dir/'best.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
-                    logger.info(f'New best score: {best_score:.4f}')
+            avg_loss  = valid_loss  / len(valid_loader)
+            avg_psnr  = valid_psnr  / len(valid_loader)
+            avg_lpips = valid_lpips / len(valid_loader)
+            avg_ssim  = valid_ssim  / len(valid_loader)
             
-            # ----------- end of epoch ------------
+            valid_score = utils.compute_valid_score(avg_psnr, avg_ssim, avg_lpips)
+                
+            metrics_epoch = {
+                'valid_loss': avg_loss,
+                'psnr': avg_psnr,
+                'lpips': avg_lpips,
+                'ssim': avg_ssim,
+            }
+            logger.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
             
-            utils.save_checkpoint(checkpoint_dir/'last.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
+            if valid_score > best_score:
+                
+                best_score = valid_score
+                utils.save_checkpoint(checkpoint_dir/'best.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
+                logger.info(f'New best score: {best_score:.4f}')
+        
+        # ----------- end of epoch ------------
+        
+        utils.save_checkpoint(checkpoint_dir/'last.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
             
 
 if __name__ == '__main__':
