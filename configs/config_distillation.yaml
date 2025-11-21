@@ -16,7 +16,7 @@ distillation:
 flow:
   sigma_min: 1e-4
   reference_steps: 40
-  distillation_steps: 1
+  distillation_steps: 2
   integrate_method: 'euler'    # Literal['euler', 'heun', 'odeint']
   dt_schedule: 'linear'         # Literal['linear', 'cosine']
 
@@ -25,6 +25,8 @@ lambdas:
   velocity: 0.1
   distillation: 0.1
   lpips: 0.5
+  ssim: 0.5
+  image: 0.5
 
 
 dataset:
@@ -45,7 +47,7 @@ model:
 
 
 train:
-  epochs: 5000
+  epochs: 500
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
@@ -58,3 +60,4 @@ valid:
   valid_interval: 1
   sample_num: 100
   sample_interval: 1
+  sample_layout: 'grid'     # Literal['grid', 'sep_file', 'sep_folder']

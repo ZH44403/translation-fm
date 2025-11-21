@@ -17,10 +17,10 @@ from models import flow, unet
 from utils import dist, losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 
-# hydra的装饰器，指定配置文件路径和配置文件名
+# hydra装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config_distillation', version_base='1.3')
 def train(args: DictConfig):
     
@@ -63,7 +63,7 @@ def train(args: DictConfig):
                                      num_res_blocks=args.model.num_res_blocks, ).to(device).float()
     
     # 加载第一阶段的ema模型权重
-    current_epoch, reference_ema, _, _ = utils.load_checkpoint(Path(args.distillation.checkpoint_path), reference_ema)
+    _, reference_ema, _, _ = utils.load_checkpoint(Path(args.distillation.checkpoint_path), reference_ema)
     distillation_model.load_state_dict(reference_ema.state_dict())
     
     # 冻结reference_ema的参数
@@ -76,9 +76,11 @@ def train(args: DictConfig):
     flow_model = flow.PairInterpolantFlow()
     
     # loss
-    velocity_loss = losses.CharbonnierLoss(eps=1e-3)
+    velocity_loss     = losses.CharbonnierLoss(eps=1e-3)
     distillation_loss = losses.CharbonnierLoss(eps=1e-3)
-    lpips_loss = pyiqa.create_metric('lpips', device=device, as_loss=True)
+    image_loss        = losses.CharbonnierLoss(eps=1e-3)
+    lpips_loss        = pyiqa.create_metric('lpips', device=device, as_loss=True)
+    ssim_loss         = pyiqa.create_metric('ssimc', device=device, as_loss=True)
     
     optimizer = optim.Adam(distillation_model.parameters(), lr=args.train.min_lr)
 
@@ -89,7 +91,9 @@ def train(args: DictConfig):
     sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=min(len(valid_set), args.valid.sample_num)))
     # accumulate_steps = args.train.accumulate_steps
 
-    for epoch in range(current_epoch, (args.train.epochs+1)):
+    current_epoch = 1
+    
+    for epoch in range(current_epoch, args.train.epochs+1):
         
         distillation_model.train()
         distillation_ema.eval()
@@ -98,6 +102,8 @@ def train(args: DictConfig):
         train_loss_velocity     = 0.0
         train_loss_distillation = 0.0
         train_loss_lpips        = 0.0
+        train_loss_ssim         = 0.0
+        train_loss_image        = 0.0
         
         train_bar = tqdm(enumerate(train_loader), total=len(train_loader), 
                          desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
@@ -122,21 +128,30 @@ def train(args: DictConfig):
                 loss_velocity = torch.tensor(0.0, device=device)
             
             # 阶段一采样, 不反向传播
-            with torch.no_grad():
-                opt_reference = flow.integrate_flow(reference_ema, sar, args.flow.reference_steps, device=device, 
-                                                    method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
+            if args.lambdas.distillation > 0.0:
+                with torch.no_grad():
+                    opt_reference = flow.integrate_flow(reference_ema, sar, args.flow.reference_steps, device=device, 
+                                                        method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
             
             # 阶段二采样, 反向传播
             opt_distillation = flow.integrate_flow(distillation_model, sar, args.flow.distillation_steps, device=device, 
                                               method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
             
-            loss_distillation = distillation_loss(opt_distillation, opt_reference)
-            loss_lpips = lpips_loss(opt_distillation, opt)
+            opt_distillation_01 = utils.to_01(opt_distillation)
+            opt_reference_01 = utils.to_01(opt_reference)
+            opt_01 = utils.to_01(opt)
+            
+            loss_distillation = distillation_loss(opt_distillation_01, opt_reference_01)
+            loss_lpips = lpips_loss(opt_distillation_01, opt_01)
+            loss_ssim  = ssim_loss(opt_distillation_01, opt_01)
+            loss_image = image_loss(opt_distillation_01, opt_01)
             
             loss = (
                 args.lambdas.velocity     * loss_velocity + 
                 args.lambdas.distillation * loss_distillation + 
-                args.lambdas.lpips        * loss_lpips
+                args.lambdas.lpips        * loss_lpips + 
+                args.lambdas.ssim         * loss_ssim +
+                args.lambdas.image        * loss_image
             )
             
             # 反向传播的是加权的loss
@@ -148,12 +163,16 @@ def train(args: DictConfig):
             train_loss_velocity     += loss_velocity.item()
             train_loss_distillation += loss_distillation.item()
             train_loss_lpips        += loss_lpips.item()
+            train_loss_image        += loss_image.item()
+            train_loss_ssim         += loss_ssim.item()
             
             train_bar.set_postfix(
-                loss  = f'{train_loss/(i+1):.4f}',
+                # loss  = f'{train_loss/(i+1):.4f}',
                 vel   = f'{train_loss_velocity/(i+1):.4f}',
+                img   = f'{train_loss_image/(i+1):.4f}',
                 lpips = f'{train_loss_lpips/(i+1):.4f}',
                 dist  = f'{train_loss_distillation/(i+1):.4f}',
+                ssim  = f'{train_loss_ssim/(i+1):.4f}'
             )
         
         avg_train_loss              = train_loss              / len(train_loader)
@@ -169,9 +188,10 @@ def train(args: DictConfig):
         distillation_model.eval()
         distillation_ema.eval()
         
-        valid_loss          = 0.0
+        # valid_loss          = 0.0
         valid_loss_velocity = 0.0
         valid_loss_lpips    = 0.0
+        valid_loss_image    = 0.0
         
         valid_psnr  = 0.0
         valid_lpips = 0.0
@@ -201,22 +221,34 @@ def train(args: DictConfig):
                 else:
                     loss_velocity = torch.tensor(0.0, device=device)
                 
-                loss_lpips = lpips_loss(opt_pred, opt)
+                opt_pred_01 = utils.to_01(opt_pred)
+                opt_01 = utils.to_01(opt)
+                
+                loss_lpips = lpips_loss(opt_pred_01, opt_01)
+                loss_img = image_loss(opt_pred_01, opt_01)
                 
                 valid_loss_velocity += loss_velocity.item()
                 valid_loss_lpips    += loss_lpips.item()
+                valid_loss_image += loss_img.item()
                 
-                valid_psnr  += torch.mean(psnr(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
-                valid_lpips += torch.mean(lpips(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
-                valid_ssim  += torch.mean(ssim(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                valid_psnr  += torch.mean(psnr(opt_pred_01, opt_01)).item()
+                valid_lpips += torch.mean(lpips(opt_pred_01, opt_01)).item()
+                valid_ssim  += torch.mean(ssim(opt_pred_01, opt_01)).item()
 
                 sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
                                     sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
                 
-                valid_bar.set_postfix(v_loss=f'{valid_loss/(i+1):.4f}', psnr=f'{valid_psnr/(i+1):.2f}', 
-                                      lpips=f'{valid_lpips/(i+1):.4f}', ssim=f'{valid_ssim/(i+1):.4f}')
+                valid_bar.set_postfix(l_img=f'{valid_loss_image/(i+1):.4f}',
+                                    #   l_lpips=f'{valid_loss_lpips/(i+1):.4f}',
+                                      v=f'{valid_loss_velocity/(i+1):.4f}', 
+                                      psnr=f'{valid_psnr/(i+1):.2f}', 
+                                      lpips=f'{valid_lpips/(i+1):.4f}', 
+                                      ssim=f'{valid_ssim/(i+1):.4f}')
                 
-            avg_loss  = valid_loss  / len(valid_loader)
+            avg_valid_loss_velocity = valid_loss_velocity / len(valid_loader)
+            avg_valid_loss_lpips    = valid_loss_lpips    / len(valid_loader)
+            avg_valid_loss_image    = valid_loss_image    / len(valid_loader)
+            
             avg_psnr  = valid_psnr  / len(valid_loader)
             avg_lpips = valid_lpips / len(valid_loader)
             avg_ssim  = valid_ssim  / len(valid_loader)
@@ -224,12 +256,14 @@ def train(args: DictConfig):
             valid_score = utils.compute_valid_score(avg_psnr, avg_ssim, avg_lpips)
                 
             metrics_epoch = {
-                'valid_loss': avg_loss,
-                'psnr': avg_psnr,
-                'lpips': avg_lpips,
-                'ssim': avg_ssim,
+                'vel'       : avg_valid_loss_velocity,
+                'image'     : avg_valid_loss_image,
+                'lpips_loss': avg_valid_loss_lpips,
+                'psnr'      : avg_psnr,
+                'lpips'     : avg_lpips,
+                'ssim'      : avg_ssim,
             }
-            logger.info(f'[Valid] Epoch {epoch}: loss {avg_loss:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
+            logger.info(f'[Valid] Epoch {epoch}: vel {avg_valid_loss_velocity:.4f}, l_lpips {avg_valid_loss_lpips:.4f}, image {avg_valid_loss_image:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
             
             if valid_score > best_score:
                 
@@ -238,7 +272,7 @@ def train(args: DictConfig):
                                       distillation_model, distillation_ema, optimizer, args, metrics_epoch)
                 logger.info(f'New best score: {best_score:.4f}')
                 
-        utils.save_checkpoint(checkpoint_dir/'best_distillation.pth', epoch, 
+        utils.save_checkpoint(checkpoint_dir/'last_distillation.pth', epoch, 
                               distillation_model, distillation_ema, optimizer, args, metrics_epoch)
 
 if __name__ == '__main__':

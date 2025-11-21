@@ -20,8 +20,8 @@ dataloader:
 
 model:
   name: 'unet'
-  num_res_blocks: 2
-  num_channels: 64
+  num_res_blocks: 3
+  num_channels: 96
 
 flow:
   sigma_min: 1e-4
@@ -43,5 +43,6 @@ valid:
   valid_interval: 2
   sample_num: 40
   sample_interval: 10
+  sample_layout: 'grid'     # Literal['grid', 'sep_file', 'sep_folder']
   
   

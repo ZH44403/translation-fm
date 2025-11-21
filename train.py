@@ -16,9 +16,9 @@ from models import flow, unet
 from utils import dist, losses, metrics, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
-# hydra的装饰器，指定配置文件路径和配置文件名
+# hydra装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
 def train(args: DictConfig):
     # cfg即配置文件中的内容
@@ -39,8 +39,8 @@ def train(args: DictConfig):
     valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
                                      data_type='valid', split_ratio=args.dataset.split_ratio)
     # debug
-    train_set = torch.utils.data.Subset(train_set, range(1280))
-    valid_set = torch.utils.data.Subset(valid_set, range(160))
+    # train_set = torch.utils.data.Subset(train_set, range(20))
+    # valid_set = torch.utils.data.Subset(valid_set, range(20))
      
     train_loader = DataLoader(train_set, batch_size=args.dataloader.batch_size, 
                               shuffle=True, num_workers=args.dataloader.num_workers)
@@ -73,7 +73,7 @@ def train(args: DictConfig):
     lpips = pyiqa.create_metric('lpips', device=device)
     
     
-    sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=args.valid.sample_num))
+    sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=min(len(valid_set), args.valid.sample_num)))
     
     current_epoch = 1
 
@@ -133,6 +133,7 @@ def train(args: DictConfig):
         # 每隔valid_interval个epoch进行一次验证，节省时间
         if epoch % args.valid.valid_interval != 0:
             continue
+        
         # validation
         model.eval()
         ema_model.eval()
@@ -166,13 +167,16 @@ def train(args: DictConfig):
                 opt_pred  = flow.integrate_flow(ema_model, sar, args.flow.eval_steps, device=device, 
                                                 method=args.flow.integrate_method, 
                                                 dt_schedule=args.flow.dt_schedule)
+                opt_pred_01 = utils.to_01(opt_pred)
+                opt_01 = utils.to_01(opt)
                 
-                valid_psnr  += torch.mean(psnr(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
-                valid_lpips += torch.mean(lpips(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
-                valid_ssim  += torch.mean(ssim(opt_pred.clamp(0, 1), opt.clamp(0, 1))).item()
+                valid_psnr  += torch.mean(psnr(opt_pred_01, opt_01)).item()
+                valid_lpips += torch.mean(lpips(opt_pred_01, opt_01)).item()
+                valid_ssim  += torch.mean(ssim(opt_pred_01, opt_01)).item()
                 
                 sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
-                                    sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
+                                    sample_idx_list, valid_set, log_dir, 
+                                    every_n_epochs=args.valid.sample_interval, layout=args.valid.sample_layout)
                 
                 valid_bar.set_postfix(v_loss=f'{valid_loss/(i+1):.4f}', psnr=f'{valid_psnr/(i+1):.2f}', 
                                     lpips=f'{valid_lpips/(i+1):.4f}', ssim=f'{valid_ssim/(i+1):.4f}')

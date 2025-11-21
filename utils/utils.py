@@ -91,3 +91,13 @@ def ema_to_model(ema_state_dict):
 
 def compute_valid_score(psnr, ssim, lpips):
     return psnr + 50.0 * ssim - 10.0 * lpips
+
+
+def to_01(x, eps=1e-8):
+    
+    dims = tuple(range(1, x.ndim))
+    x_min = x.amin(dim=dims, keepdim=True)
+    x_max = x.amax(dim=dims, keepdim=True)
+    scale = (x_max - x_min).clamp_min(eps)
+    
+    return (x - x_min) / scale
