@@ -9,23 +9,23 @@ seed: 114514
 
 
 distillation:
-  reference_root: './outputs/20251118/115341'
-  checkpoint_path: './outputs/20251118/115341/checkpoint/best.pth'
+  reference_root: './outputs/20251120/202548'
+  checkpoint_path: './outputs/20251120/202548/checkpoint/best.pth'
 
 
 flow:
   sigma_min: 1e-4
-  reference_steps: 40
-  distillation_steps: 2
+  reference_steps: 30
+  distillation_steps: 1
   integrate_method: 'euler'    # Literal['euler', 'heun', 'odeint']
   dt_schedule: 'linear'         # Literal['linear', 'cosine']
 
 
 lambdas:
-  velocity: 0.1
-  distillation: 0.1
-  lpips: 0.5
-  ssim: 0.5
+  velocity: 0.5
+  distillation: 0.5
+  lpips: 0.2
+  ssim: 0.2
   image: 0.5
 
 

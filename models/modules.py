@@ -65,7 +65,8 @@ class Upsample(nn.Module):
         if self.conv_resample:
             self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         
-        self.up = nn.Upsample(scale_factor=2, mode='nearest')
+        # self.up = nn.Upsample(scale_factor=2, mode='nearest')
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         
     def forward(self, x):
         

@@ -17,7 +17,7 @@ from models import flow, unet
 from utils import dist, losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 
 # hydra装饰器，指定配置文件路径和配置文件名
@@ -137,14 +137,15 @@ def train(args: DictConfig):
             opt_distillation = flow.integrate_flow(distillation_model, sar, args.flow.distillation_steps, device=device, 
                                               method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
             
-            opt_distillation_01 = utils.to_01(opt_distillation)
-            opt_reference_01 = utils.to_01(opt_reference)
-            opt_01 = utils.to_01(opt)
+            loss_image = image_loss(opt_distillation, opt)
+            loss_distillation = distillation_loss(opt_distillation, opt_reference)
             
-            loss_distillation = distillation_loss(opt_distillation_01, opt_reference_01)
+            opt_distillation_01 = utils.to_01(opt_distillation)
+            opt_01 = utils.to_01(opt)
+
             loss_lpips = lpips_loss(opt_distillation_01, opt_01)
-            loss_ssim  = ssim_loss(opt_distillation_01, opt_01)
-            loss_image = image_loss(opt_distillation_01, opt_01)
+            loss_ssim  = 1 - ssim_loss(opt_distillation_01, opt_01)
+            
             
             loss = (
                 args.lambdas.velocity     * loss_velocity + 
@@ -179,8 +180,10 @@ def train(args: DictConfig):
         avg_train_loss_velocity     = train_loss_velocity     / len(train_loader)
         avg_train_loss_distillation = train_loss_distillation / len(train_loader)
         avg_train_loss_lpips        = train_loss_lpips        / len(train_loader)
+        avg_train_loss_image        = train_loss_image        / len(train_loader)
+        avg_train_loss_ssim         = train_loss_ssim         / len(train_loader)
         
-        logger.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}, vel {avg_train_loss_velocity:.4f}, lpips {avg_train_loss_lpips:.4f}, dist {avg_train_loss_distillation:.4f}')
+        logger.info(f'[Train] Epoch {epoch}: loss {avg_train_loss:.4f}, vel_loss {avg_train_loss_velocity:.4f}, lpips_loss {avg_train_loss_lpips:.4f}, dist_loss {avg_train_loss_distillation:.4f}, ssim_loss {avg_train_loss_ssim:.4f}, img_loss {avg_train_loss_image:.4f}')
         
         if epoch % args.valid.valid_interval != 0:
             continue
@@ -190,7 +193,6 @@ def train(args: DictConfig):
         
         # valid_loss          = 0.0
         valid_loss_velocity = 0.0
-        valid_loss_lpips    = 0.0
         valid_loss_image    = 0.0
         
         valid_psnr  = 0.0
@@ -224,11 +226,9 @@ def train(args: DictConfig):
                 opt_pred_01 = utils.to_01(opt_pred)
                 opt_01 = utils.to_01(opt)
                 
-                loss_lpips = lpips_loss(opt_pred_01, opt_01)
                 loss_img = image_loss(opt_pred_01, opt_01)
                 
                 valid_loss_velocity += loss_velocity.item()
-                valid_loss_lpips    += loss_lpips.item()
                 valid_loss_image += loss_img.item()
                 
                 valid_psnr  += torch.mean(psnr(opt_pred_01, opt_01)).item()
@@ -246,7 +246,6 @@ def train(args: DictConfig):
                                       ssim=f'{valid_ssim/(i+1):.4f}')
                 
             avg_valid_loss_velocity = valid_loss_velocity / len(valid_loader)
-            avg_valid_loss_lpips    = valid_loss_lpips    / len(valid_loader)
             avg_valid_loss_image    = valid_loss_image    / len(valid_loader)
             
             avg_psnr  = valid_psnr  / len(valid_loader)
@@ -258,12 +257,11 @@ def train(args: DictConfig):
             metrics_epoch = {
                 'vel'       : avg_valid_loss_velocity,
                 'image'     : avg_valid_loss_image,
-                'lpips_loss': avg_valid_loss_lpips,
                 'psnr'      : avg_psnr,
                 'lpips'     : avg_lpips,
                 'ssim'      : avg_ssim,
             }
-            logger.info(f'[Valid] Epoch {epoch}: vel {avg_valid_loss_velocity:.4f}, l_lpips {avg_valid_loss_lpips:.4f}, image {avg_valid_loss_image:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
+            logger.info(f'[Valid] Epoch {epoch}: vel {avg_valid_loss_velocity:.4f}, image {avg_valid_loss_image:.4f}, psnr {avg_psnr:.2f}, lpips {avg_lpips:.4f}, ssim {avg_ssim:.4f}')
             
             if valid_score > best_score:
                 

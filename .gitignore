@@ -1,6 +1,6 @@
 
 outputs
-external
+external/generate_sen12_json.py
 .vscode
 
 # Python

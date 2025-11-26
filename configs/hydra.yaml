@@ -2,7 +2,7 @@
 
 hydra:
   run:
-    dir: outputs/${now:%Y%m%d}/${now:%H%M%S}
+    dir: outputs/flow/${now:%Y%m%d}/${now:%H%M%S}
 
   job_logging:
     version: 1

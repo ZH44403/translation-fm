@@ -15,13 +15,13 @@ dataset:
 
 dataloader:
   num_workers: 8
-  batch_size: 8
+  batch_size: 4
 
 
 model:
   name: 'unet'
   num_res_blocks: 3
-  num_channels: 96
+  num_channels: 128
 
 flow:
   sigma_min: 1e-4
@@ -30,7 +30,7 @@ flow:
   dt_schedule: 'linear'         # Literal['linear', 'cosine']
 
 train:
-  epochs: 5000
+  epochs: 300
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
