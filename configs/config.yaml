@@ -20,8 +20,9 @@ dataloader:
 
 model:
   name: 'unet'
-  num_res_blocks: 3
-  num_channels: 128
+  num_res_blocks: 2
+  num_channels: 64
+  dropout: 0.1
 
 flow:
   sigma_min: 1e-4
@@ -34,7 +35,6 @@ train:
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
-  accumulate_steps: 2
   # warmup_steps: 1000
   # max_steps: 400000
   

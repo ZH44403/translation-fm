@@ -15,72 +15,6 @@ class CharbonnierLoss(nn.Module):
         
         diff = x - y
         return torch.mean(torch.sqrt(diff * diff + self.eps * self.eps))
-    
-
-class PerceptualLoss(nn.Module):
-    
-    def __init__(self, resize: bool=True, layer_weights=None, input_range: str='-1, 1'):
-        super().__init__()
-        
-        vgg = torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.IMAGENET1K_V1).features
-        
-        self.stage1 = nn.Sequential(*[vgg[i] for i in range(0, 4)])
-        self.stage2 = nn.Sequential(*[vgg[i] for i in range(4, 9)])
-        self.stage3 = nn.Sequential(*[vgg[i] for i in range(9, 16)])
-        
-        # 冻结VGG参数
-        for p in self.parameters():
-            p.requires_grad = False
-        
-        if layer_weights is None:
-            layer_weights = [1.0, 1.0, 1.0]
-            
-        self.layer_weights = layer_weights
-        self.resize = resize
-        
-        assert input_range in ['-1, 1', '0, 1']
-        self.input_range = input_range
-        
-        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
-        
-    # 将输入从[-1, 1]或[0, 1]映射到VGG需要的[0, 1], 并做ImageNet的归一化
-    def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
-        
-        # 保证通道数为3
-        if x.size(1) == 1:
-            x = x.repeat(1, 3, 1, 1)
-        
-        if self.input_range == '-1, 1':
-            x = (x + 1.0) / 2.0
-            
-        x = (x - self.mean) / self.std
-
-        return x
-    
-    def _vgg_forward(self, x: torch.Tensor) -> torch.Tensor:
-        
-        h1 = self.stage1(x)
-        h2 = self.stage2(h1)
-        h3 = self.stage3(h2)
-        
-        return [h1, h2, h3]
-    
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        
-        if self.resize:
-            x = F.interpolate(x, size=(224, 224), model='bilinear', align_corners=False)
-            y = F.interpolate(y, size=(224, 224), model='bilinear', align_corners=False)
-            
-        features_x = self._vgg_forward(x)
-        features_y = self._vgg_forward(y)
-
-        loss = 0.0
-        
-        for w, fx, fy in zip(self.layer_weights, features_x, features_y):
-            loss += w * F.l1_loss(fx, fy)
-
-        return loss
         
 
 class PatchGANLoss(nn.Module):
@@ -141,7 +75,6 @@ class PatchGANLoss(nn.Module):
         else:
             raise ValueError(f'Unsupported mode: {mode}')
         
-
 
 class PatchGANDiscriminator(nn.Module):
     

@@ -8,25 +8,27 @@ device: 'cuda'
 seed: 114514
 
 
-distillation:
-  reference_root: './outputs/20251120/202548'
+path:
+  # reference_root: './outputs/20251120/202548'
   checkpoint_path: './outputs/20251120/202548/checkpoint/best.pth'
+  # checkpoint_path: './outputs/distillation/best_distillation.pth'
 
 
 flow:
   sigma_min: 1e-4
-  reference_steps: 30
+  reference_steps: 20
   distillation_steps: 1
   integrate_method: 'euler'    # Literal['euler', 'heun', 'odeint']
   dt_schedule: 'linear'         # Literal['linear', 'cosine']
 
 
 lambdas:
-  velocity: 0.5
-  distillation: 0.5
-  lpips: 0.2
-  ssim: 0.2
-  image: 0.5
+  velocity: 0.1
+  distillation: 0.1
+  lpips: 0.4
+  ssim: 0.4
+  image: 0.4
+  gan: 0.1
 
 
 dataset:
@@ -44,6 +46,7 @@ model:
   name: 'unet'
   num_res_blocks: 2
   num_channels: 64
+  dropout: 0.1
 
 
 train:
@@ -51,7 +54,7 @@ train:
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
-  accumulate_steps: 2
+  patchgan_lr: 5e-5
   # warmup_steps: 1000
   # max_steps: 400000
   

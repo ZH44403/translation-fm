@@ -57,7 +57,7 @@ def load_checkpoint(path, ema_model=None, model=None, optimizer=None):
     
     checkpoint = torch.load(path, map_location='cpu')
     
-    epoch = int(checkpoint['epoch'])
+    # epoch = int(checkpoint['epoch'])
     
     if ema_model is not None:
         ema_model.load_state_dict(ema_to_model(checkpoint['ema_model']))
@@ -68,7 +68,7 @@ def load_checkpoint(path, ema_model=None, model=None, optimizer=None):
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer'])    
         
-    return epoch+1, ema_model, model, optimizer
+    return ema_model, model, optimizer
 
 
 # 将ema_state_dict中的键值转换为model_state_dict的格式
@@ -90,7 +90,7 @@ def ema_to_model(ema_state_dict):
 
 
 def compute_valid_score(psnr, ssim, lpips):
-    return psnr + 50.0 * ssim - 10.0 * lpips
+    return 0.5 * psnr + 50.0 * ssim - 10.0 * lpips
 
 
 def to_01(x, eps=1e-8):

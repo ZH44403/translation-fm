@@ -54,7 +54,7 @@ def train(args: DictConfig):
     
     model = unet.UNetModel(image_size=sar_shape[1], in_channels=sar_shape[0], 
                            model_channels=args.model.num_channels, out_channels=opt_shape[0],
-                           num_res_blocks=args.model.num_res_blocks, ).to(device).float()
+                           num_res_blocks=args.model.num_res_blocks, dropout=args.model.dropout).to(device).float()
     # model = torch.compile(model)
     
     ema_model = optim.swa_utils.AveragedModel(model, multi_avg_fn=optim.swa_utils.get_ema_multi_avg_fn(0.9999))
@@ -76,8 +76,6 @@ def train(args: DictConfig):
     sample_idx_list = sorted(random.sample(range(0, len(valid_set)), k=min(len(valid_set), args.valid.sample_num)))
     
     current_epoch = 1
-
-    # accumulate_steps = args.train.accumulate_steps
     
     for epoch in range(current_epoch, (args.train.epochs+1)):
         
@@ -95,7 +93,6 @@ def train(args: DictConfig):
             sar = sar.to(device, dtype=torch.float32)
             opt = opt.to(device, dtype=torch.float32)   
 
-            # if i % accumulate_steps == 0:
             optimizer.zero_grad(set_to_none=True)
                 
             t = torch.rand(sar.shape[0], device=device)            
@@ -104,13 +101,10 @@ def train(args: DictConfig):
             x_t, v_true = flow_model.step(t, sar, opt)
             v_pred = model(t, x_t)
             loss_velocity = velocity_loss(v_pred, v_true)
-            
-            # train_loss = loss_velocity / accumulate_steps
+
             train_loss = loss_velocity
             # scaler.scale(train_loss).backward()
             train_loss.backward()
-            
-            # if (i+1) % accumulate_steps == 0 or (i+1) == len(train_loader):
                 
             # scaler.unscale_(optimizer)
             grad = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -123,7 +117,6 @@ def train(args: DictConfig):
                 # for pg in optimizer.param_groups:
                 #     pg['lr'] = utils.get_lr(args, step) 
             
-            # train_loss_sum += train_loss.item() * accumulate_steps
             train_loss_sum += train_loss.item()
             train_bar.set_postfix(loss=f'{train_loss_sum / (i+1):.4f}', )
         
