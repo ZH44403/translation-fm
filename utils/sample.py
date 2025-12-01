@@ -9,7 +9,7 @@ from typing import List, Literal, Sequence
 def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
                  epoch: int, iter_idx: int, batch_size: int, sample_idx_list: Sequence[int],
                  image_meta: torch.utils.data.Dataset, log_dir: Path, 
-                 every_n_epochs: int=1, layout: Literal['grid', 'sep_file', 'sep_folder']='grid', is_master: bool=True):
+                 every_n_epochs: int=1, layout: Literal['grid', 'folder']='grid', is_master: bool=True):
     
     if (epoch % every_n_epochs) != 0:
         return
@@ -49,29 +49,9 @@ def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
             image_class = p.parts[-3]
             image_name = p.stem
             
-            out_path = snap_dir / f"{image_class}_{image_name}.png"
-            torchvision.utils.save_image(grid, str(out_path))
+            torchvision.utils.save_image(grid, str(snap_dir / f"{image_class}_{image_name}.png"))
     
-    # sar, opt, pred分别存储
-    elif layout == 'sep_file':
-
-        for j in range(len(select_idx)):
-            
-            p = Path(image_pairs[start+j][0])
-            
-            image_class = p.parts[-3]
-            image_name = p.stem
-            
-            p = snap_dir / f'{image_class}_{image_name}_sar.png'
-            torchvision.utils.save_image(sar[j], str(p))
-
-            p = snap_dir / f'{image_class}_{image_name}_opt.png'
-            torchvision.utils.save_image(opt[j], str(p))
-
-            p = snap_dir / f'{image_class}_{image_name}_pred.png'
-            torchvision.utils.save_image(pred[j], str(p))
-    
-    elif layout == 'sep_folder':
+    elif layout == 'folder':
         
         sar_dir = snap_dir / 'sar'
         opt_dir = snap_dir / 'opt'
@@ -88,13 +68,48 @@ def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
             image_class = p.parts[-3]
             image_name = p.stem
             
-            p = sar_dir / f'{image_class}_{image_name}.png'
-            torchvision.utils.save_image(sar[j], str(p))
-
-            p = opt_dir / f'{image_class}_{image_name}.png'
-            torchvision.utils.save_image(opt[j], str(p))
-
-            p = pred_dir / f'{image_class}_{image_name}.png'
-            torchvision.utils.save_image(pred[j], str(p))
+            torchvision.utils.save_image(sar[j], str(sar_dir / f'{image_class}_{image_name}.png'))
+            torchvision.utils.save_image(opt[j], str(opt_dir / f'{image_class}_{image_name}.png'))
+            torchvision.utils.save_image(pred[j], str(pred_dir / f'{image_class}_{image_name}.png'))
     
     return 
+
+
+@torch.inference_mode()
+def test_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
+               iter_idx: int, image_meta: torch.utils.data.Dataset, 
+               save_dir: Path, need_grid=False):
+    
+    assert sar.ndim == opt.ndim == pred.ndim == 4        # [b, c, h, w]
+    assert sar.shape[:1] == opt.shape[:1] == pred.shape[:1]
+    
+    
+    sar_dir = save_dir / 'sar'
+    opt_dir = save_dir / 'opt'
+    pred_dir = save_dir / 'pred'
+    
+    sar_dir.mkdir(parents=True, exist_ok=True)
+    opt_dir.mkdir(parents=True, exist_ok=True)
+    pred_dir.mkdir(parents=True, exist_ok=True)
+    
+    p = Path(image_meta.image_pairs[iter_idx][0])
+    image_class = p.parts[-3]
+    image_name = p.stem
+    
+    torchvision.utils.save_image(sar, str(sar_dir / f'{image_class}_{image_name}.png'))
+    torchvision.utils.save_image(opt, str(opt_dir / f'{image_class}_{image_name}.png'))
+    torchvision.utils.save_image(pred, str(pred_dir / f'{image_class}_{image_name}.png'))
+    
+    if need_grid:
+        
+        grid_dir = save_dir / 'grid'
+        grid_dir.mkdir(parents=True, exist_ok=True)
+        
+        for j in range(sar.shape[0]):
+
+            tiles = [sar[j], opt[j], pred[j]]
+            grid = torchvision.utils.make_grid(torch.stack(tiles, dim=0), nrow=len(tiles), padding=2)
+        
+        torchvision.utils.save_image(grid, str(grid_dir / f"{image_class}_{image_name}.png"))
+    
+    return

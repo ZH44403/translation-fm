@@ -7,16 +7,16 @@ import logging
 from tqdm import tqdm
 from pathlib import Path
 from torch import optim, nn
-from torch.utils.data import DataLoader, Dataset
-from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader
+from omegaconf import DictConfig
 from hydra.core.hydra_config import HydraConfig
 
 from data import dataset
 from models import flow, unet
-from utils import dist, losses, utils, sample
+from utils import losses, utils, sample
 
-# import os 
-# os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+import os 
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 
 # hydra装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')

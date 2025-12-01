@@ -7,17 +7,17 @@ import logging
 
 from tqdm import tqdm
 from pathlib import Path
-from torch import optim, nn
-from torch.utils.data import DataLoader, Dataset
-from omegaconf import DictConfig, OmegaConf
+from torch import optim
+from torch.utils.data import DataLoader
+from omegaconf import DictConfig
 from hydra.core.hydra_config import HydraConfig
 
 from data import dataset
 from models import flow, unet
-from utils import dist, losses, utils, sample
+from utils import losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 
 # hydra装饰器，指定配置文件路径和配置文件名
@@ -63,7 +63,7 @@ def train(args: DictConfig):
                                         num_res_blocks=args.model.num_res_blocks, dropout=args.model.dropout).to(device).float()
     
     # 加载第一阶段的ema模型权重
-    reference_ema, _, _ = utils.load_checkpoint(Path(args.path.checkpoint_path), reference_ema)
+    reference_ema, _, _, _ = utils.load_checkpoint(Path(args.path.checkpoint_path), reference_ema)
     distillation_model.load_state_dict(reference_ema.state_dict())
     
     # 冻结reference_ema的参数
@@ -124,7 +124,7 @@ def train(args: DictConfig):
             patchgan_loss.train()
             optimizer_D.zero_grad(set_to_none=True)
             
-            loss_gan_D = patchgan_loss(sar, y_real=opt, y_fake=opt_distillation, mode='D')
+            loss_gan_D = patchgan_loss(sar, y_real=opt, y_fake=opt_distillation.detach(), mode='D')
             loss_gan_D.backward()
             optimizer_D.step()
             
@@ -138,10 +138,10 @@ def train(args: DictConfig):
             loss_velocity = velocity_loss(v_pred, v_true)
             
             # 蒸馏损失
-            if args.lambdas.distillation > 0.0:
-                with torch.no_grad():
-                    opt_reference = flow.integrate_flow(reference_ema, sar, args.flow.reference_steps, device=device, 
-                                                        method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
+            # if args.lambdas.distillation > 0.0:
+            with torch.no_grad():
+                opt_reference = flow.integrate_flow(reference_ema, sar, args.flow.reference_steps, device=device, 
+                                                    method=args.flow.integrate_method, dt_schedule=args.flow.dt_schedule)
             loss_distillation = distillation_loss(opt_distillation, opt_reference)
             
             # 图像级损失
@@ -154,7 +154,7 @@ def train(args: DictConfig):
             
             # 生成器损失
             patchgan_loss.eval()
-            loss_gan_G = patchgan_loss(sar, y_fake=opt_distillation, mode='G')
+            loss_gan_G, _, _ = patchgan_loss(sar, y_real=opt, y_fake=opt_distillation, mode='G')
             
             loss = (
                 args.lambdas.velocity     * loss_velocity + 
@@ -239,13 +239,13 @@ def train(args: DictConfig):
                 else:
                     loss_velocity = torch.tensor(0.0, device=device)
                 
+                loss_image = image_loss(opt_pred, opt)
+                
                 opt_pred_01 = utils.to_01(opt_pred)
                 opt_01 = utils.to_01(opt)
                 
-                loss_img = image_loss(opt_pred_01, opt_01)
-                
                 valid_loss_velocity += loss_velocity.item()
-                valid_loss_image += loss_img.item()
+                valid_loss_image += loss_image.item()
                 
                 valid_psnr  += torch.mean(psnr(opt_pred_01, opt_01)).item()
                 valid_lpips += torch.mean(lpips(opt_pred_01, opt_01)).item()

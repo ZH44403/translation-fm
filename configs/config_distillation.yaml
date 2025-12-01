@@ -10,7 +10,7 @@ seed: 114514
 
 path:
   # reference_root: './outputs/20251120/202548'
-  checkpoint_path: './outputs/20251120/202548/checkpoint/best.pth'
+  checkpoint_path: './outputs/flow/20251120/202548/checkpoint/best.pth'
   # checkpoint_path: './outputs/distillation/best_distillation.pth'
 
 
@@ -28,7 +28,7 @@ lambdas:
   lpips: 0.4
   ssim: 0.4
   image: 0.4
-  gan: 0.1
+  gan: 0.05
 
 
 dataset:
@@ -54,7 +54,7 @@ train:
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
-  patchgan_lr: 5e-5
+  patchgan_lr: 4e-5
   # warmup_steps: 1000
   # max_steps: 400000
   

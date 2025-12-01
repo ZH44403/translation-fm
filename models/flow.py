@@ -117,6 +117,8 @@ def _integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int,
         
         x = x + 0.5 * dt * (k_1 + k_2)
         
+    return x
+        
         
 # @torch.inference_mode()
 def _integrate_flow_odeint(model: nn.Module, x_0: torch.Tensor, device: torch.device,
