@@ -1,7 +1,8 @@
-
-outputs
-external
 .vscode
+outputs
+
+# json dataset
+data/*.json
 
 # Python
 data/__pycache__
