@@ -108,7 +108,8 @@ class ResBlock(TimestepBlock):
         
         self.emb_layers = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(emb_channels, self.out_channels)
+            zero_module(nn.Linear(emb_channels, 2 * self.out_channels))
+            # nn.Linear(emb_channels, self.out_channels)
         )
         
         self.out_layers = nn.Sequential(
@@ -136,7 +137,14 @@ class ResBlock(TimestepBlock):
             h = self.in_layers(x)
         
         emb_out = self.emb_layers(emb).type(h.dtype)
-        h = h + emb_out[:, :, None, None]
+        gamma, beta = torch.chunk(emb_out, 2, dim=1)
+        
+        gamma = 0.5 * torch.tanh(gamma)   # [-0.5, 0.5]
+        beta  = 0.5 * torch.tanh(beta)    # [-0.5, 0.5]
+        
+        h = h * (1.0 + gamma[:, :, None, None]) + beta[:, :, None, None]
+        
+        # h = h + emb_out[:, :, None, None]
         h = self.out_layers(h)
         
         return self.skip_connection(x) + h

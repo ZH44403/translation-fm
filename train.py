@@ -16,7 +16,7 @@ from models import flow, unet
 from utils import losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 # hydra装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
@@ -34,14 +34,24 @@ def train(args: DictConfig):
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_score = float('-inf')
     
-    train_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
-                                     data_type='train', split_ratio=args.dataset.split_ratio)
-    valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
-                                     data_type='valid', split_ratio=args.dataset.split_ratio)
-    # debug
+    # sen12 dataset
+    if args.dataset.name == 'sen12':
+        train_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, data_type='train', 
+                                        json_path=r'./data/sen12.json', split_ratio=args.dataset.split_ratio)
+        valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, data_type='valid', 
+                                        json_path=r'./data/sen12.json', split_ratio=args.dataset.split_ratio)
+
+    # qxs dataset
+    elif args.dataset.name == 'qxs':
+        train_set = dataset.QXSDataset(root_dir=args.dataset.root_dir, data_type='train', 
+                                    json_path=r'./data/qxs.json', split_ratio=args.dataset.split_ratio)
+        valid_set = dataset.QXSDataset(root_dir=args.dataset.root_dir, data_type='valid', 
+                                    json_path=r'./data/qxs.json', split_ratio=args.dataset.split_ratio)
+     
+    # only use for debugging
     # train_set = torch.utils.data.Subset(train_set, range(20))
     # valid_set = torch.utils.data.Subset(valid_set, range(20))
-     
+    
     train_loader = DataLoader(train_set, batch_size=args.dataloader.batch_size, 
                               shuffle=True, num_workers=args.dataloader.num_workers)
     valid_loader = DataLoader(valid_set, batch_size=args.dataloader.batch_size,
@@ -99,7 +109,7 @@ def train(args: DictConfig):
             assert sar.shape == opt.shape
             
             x_t, v_true = flow_model.step(t, sar, opt)
-            v_pred = model(t, x_t)
+            v_pred = model(t, x_t, sar)
             loss_velocity = velocity_loss(v_pred, v_true)
 
             train_loss = loss_velocity
@@ -137,7 +147,7 @@ def train(args: DictConfig):
         valid_ssim  = 0.0
         
         valid_bar = tqdm(enumerate(valid_loader), total=len(valid_loader), 
-                            desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
+                         desc=f'Epoch {epoch}/{args.train.epochs}', dynamic_ncols=True)
         
         with torch.no_grad():
             
@@ -151,7 +161,7 @@ def train(args: DictConfig):
                 # 速度场验证
                 t = torch.rand(sar.shape[0], device=device)
                 x_t, v_true = flow_model.step(t, sar, opt)
-                v_pred = model(t, x_t)
+                v_pred = model(t, x_t, sar)
                 
                 valid_loss_velocity = velocity_loss(v_pred, v_true)
                 valid_loss += valid_loss_velocity.item()

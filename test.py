@@ -18,7 +18,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 def test():
     
-    test_root = Path('outputs/distillation/20251128/211204')
+    test_root = Path('outputs/sen12/distillation/20251128/211204')
     
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO) 
@@ -45,8 +45,11 @@ def test():
     num_channels   = config['model']['num_channels']
     num_res_blocks = config['model']['num_res_blocks']
     
-    
-    test_set = dataset.SEN12Dataset(root_dir=dataset_path, data_type='test', split_ratio=split_ratio)
+    if config['dataset']['name'] == 'sen12':
+        test_set = dataset.SEN12Dataset(root_dir=dataset_path, data_type='test', json_path=r'./data/sen12.json', split_ratio=split_ratio)
+        
+    elif config['dataset']['name'] == 'qxs':
+        test_set = dataset.QXSDataset(root_dir=dataset_path, data_type='test', json_path=r'./data/qxs.json', split_ratio=split_ratio)
     
     test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=8)
     

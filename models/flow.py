@@ -61,20 +61,21 @@ class PairInterpolantFlow:
 # @torch.inference_mode()
 def integrate_flow(model: nn.Module, x_0: torch.Tensor, steps: int, device: torch.device,
                    method: Literal['euler', 'heun', 'odeint']='odeint', dt_schedule: Literal['linear', 'cosine']='linear',
-                   rtol: float=1e-3, atol: float=1e-4) -> torch.Tensor:
+                   rtol: float=1e-3, atol: float=1e-4, cond: torch.Tensor=None) -> torch.Tensor:
 
     if method == 'euler':
-        return _integrate_flow_euler(model, x_0, steps, device, dt_schedule)
+        return _integrate_flow_euler(model, x_0, steps, device, dt_schedule, cond)
     elif method == 'heun':
-        return _integrate_flow_heun(model, x_0, steps, device, dt_schedule)
+        return _integrate_flow_heun(model, x_0, steps, device, dt_schedule, cond)
     elif method == 'odeint':
-        return _integrate_flow_odeint(model, x_0, device, rtol, atol)
+        return _integrate_flow_odeint(model, x_0, device, rtol, atol, cond)
     else: raise ValueError(f'Unknown method: {method}')
 
 
 # @torch.inference_mode()
 def _integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int, 
-                         device: torch.device, dt_schedule: Literal['linear', 'cosine']='linear') -> torch.Tensor:
+                         device: torch.device, dt_schedule: Literal['linear', 'cosine']='linear',
+                         cond=None) -> torch.Tensor:
     
     assert steps > 0
     
@@ -88,7 +89,11 @@ def _integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int,
         dt = t_1 - t_0
         
         t = torch.full((x.shape[0], ), t_0, device=device, dtype=torch.float32)
-        v = model(t, x)
+        if cond is not None:
+            v = model(t, x, cond)
+        else:
+            v = model(t, x)
+        
         x = x + v * dt
 
     return x
@@ -96,7 +101,8 @@ def _integrate_flow_euler(model: nn.Module, x_0: torch.Tensor, steps: int,
 
 # @torch.inference_mode()
 def _integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int, 
-                         device: torch.device, dt_schedule: Literal['linear', 'cosine']) -> torch.Tensor:
+                         device: torch.device, dt_schedule: Literal['linear', 'cosine'],
+                         cond=None) -> torch.Tensor:
     
     model = _unwrap_model(model).eval()
     x_0 = x_0.to(device, dtype=torch.float32, memory_format=torch.channels_last)
@@ -109,11 +115,17 @@ def _integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int,
         dt = t_1 - t_0
         
         t_0_vec = torch.full((x_0.shape[0], ), t_0, device=device, dtype=torch.float32)
-        k_1 = model(t_0_vec, x)
+        if cond is not None:
+            k_1 = model(t_0_vec, x, cond)
+        else:
+            k_1 = model(t_0_vec, x)
         x_pred = x + k_1 * dt
         
         t_1_vec = torch.full((x_0.shape[0], ), t_1, device=device, dtype=torch.float32)
-        k_2 = model(t_1_vec, x_pred)
+        if cond is not None:
+            k_2 = model(t_1_vec, x_pred, cond)
+        else:
+            k_2 = model(t_1_vec, x_pred)
         
         x = x + 0.5 * dt * (k_1 + k_2)
         
@@ -122,25 +134,33 @@ def _integrate_flow_heun(model: nn.Module, x_0: torch.Tensor, steps: int,
         
 # @torch.inference_mode()
 def _integrate_flow_odeint(model: nn.Module, x_0: torch.Tensor, device: torch.device,
-                          rtol: float=1e-3, atol: float=1e-4, ode_method: str='dopri5') -> torch.Tensor:
+                          rtol: float=1e-3, atol: float=1e-4, ode_method: str='dopri5',
+                          cond=None) -> torch.Tensor:
     
     model = _unwrap_model(model).eval()
     x_0 = x_0.to(device, dtype=torch.float32, memory_format=torch.channels_last)
     
+    if cond is not None:
+        cond = cond.to(device, dtype=torch.float32, memory_format=torch.channels_last)
+
     class ODESampler(nn.Module):
         
-        def __init__(self, model):
+        def __init__(self, model, cond=None):
             super().__init__()
             self.model = model
+            self.cond = cond
 
         def forward(self, t, x):
             
             t_val = float(t.item()) if t.numel() == 1 else float(t.reshape([]))
             t_vec = torch.full((x.shape[0], ), t_val, device=device, dtype=torch.float32)
             
-            return self.model(t_vec, x)
+            if self.cond is not None:
+                return self.model(t_vec, x, self.cond)
+            else:
+                return self.model(t_vec, x)
         
-    sampler = ODESampler(model)
+    sampler = ODESampler(model, cond)
     t_span = torch.tensor([0.0, 1.0], device=device, dtype=torch.float32)
     x = torchdiffeq.odeint(sampler, x_0, t_span, rtol=rtol, atol=atol, method=ode_method)[-1]
     

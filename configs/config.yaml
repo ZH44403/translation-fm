@@ -1,48 +1,78 @@
-defaults:
-  - hydra        # 加载同目录下的 hydra.yaml
-  - _self_       # 保留当前文件自身
-
 # training configurations
 
-device: 'cuda'
+device: cuda
 seed: 114514
 
+
 dataset:
-  name: 'sen12'
-  root_dir: '../../dataset/sen12_categorized'
+  name: sen12
+  root_dir: ../../dataset/sen12_categorized
+  # name: qxs
+  # root_dir: ../../dataset/QXSLAB_SAROPT
   split_ratio: [0.8, 0.1, 0.1]
 
 
 dataloader:
   num_workers: 8
-  batch_size: 4
+  batch_size: 8
 
 
 model:
-  name: 'unet'
+  name: unet
   num_res_blocks: 2
   num_channels: 64
   dropout: 0.1
 
+
 flow:
   sigma_min: 1e-4
   eval_steps: 40
-  integrate_method: 'euler'    # Literal['euler', 'heun', 'odeint']
-  dt_schedule: 'linear'         # Literal['linear', 'cosine']
+  integrate_method: euler    # Literal['euler', 'heun', 'odeint']
+  dt_schedule: linear         # Literal['linear', 'cosine']
+
 
 train:
   epochs: 300
   min_lr: 1e-4
   max_lr: 1e-4
   weight_decay: 1e-4
-  # warmup_steps: 1000
-  # max_steps: 400000
-  
+
 
 valid:
   valid_interval: 2
   sample_num: 40
-  sample_interval: 10
-  sample_layout: 'grid'     # Literal['grid', 'sep_file', 'sep_folder']
+  sample_interval: 2
+  sample_layout: grid     # Literal['grid', 'sep_file', 'sep_folder']
   
-  
+
+
+hydra:
+  run:
+    dir: outputs/${dataset.name}/flow/${now:%Y%m%d}/${now:%H%M%S}
+
+  job_logging:
+    version: 1
+    formatters:
+      simple:
+        format: "[%(asctime)s] - %(message)s"
+        datefmt: "%Y-%m-%d %H:%M:%S"
+
+    handlers:
+      console:
+        class: logging.StreamHandler
+        level: INFO
+        formatter: simple
+        stream: ext://sys.stdout
+
+      file:
+        class: logging.FileHandler
+        level: INFO
+        formatter: simple
+        filename: ${hydra:runtime.output_dir}/train.log
+        mode: a
+
+    root:
+      level: INFO
+      handlers: [console, file]
+
+    disable_existing_loggers: false

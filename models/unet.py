@@ -35,6 +35,12 @@ class UNetModel(nn.Module):
         self.time_embed = nn.Sequential(nn.Linear(model_channels, time_embed_dim),
                                         nn.SiLU(),
                                         nn.Linear(time_embed_dim, time_embed_dim))
+        
+        self.sar_pool = nn.AdaptiveAvgPool2d(1)
+        self.sar_embed =nn.Sequential(
+            nn.Linear(in_channels, time_embed_dim),
+            nn.SiLU()
+        )
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
@@ -96,7 +102,7 @@ class UNetModel(nn.Module):
                                  nn.SiLU(),
                                  zero_module(nn.Conv2d(input_ch, out_channels, kernel_size=3, padding=1)))
         
-    def forward(self, t, x, y=None):
+    def forward(self, t, x, sar=None, y=None):
 
         # assert (y is not None) == (self.num_classes is not None), 'Must specify y if and only if the model is class-conditional'
         
@@ -108,9 +114,16 @@ class UNetModel(nn.Module):
         hs = []
         emb = self.time_embed(timestep_embedding(t, self.model_channels))
         
-        if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
-            emb = emb + self.label_emb(y)
+        # SAR条件嵌入
+        if sar is not None:
+            sar_pooled = self.sar_pool(sar)
+            sar_vec = sar_pooled.view(sar_pooled.shape[0], -1)
+            sar_emb = self.sar_embed(sar_vec)
+            emb = emb + sar_emb
+            
+        # if self.num_classes is not None:
+        #     assert y.shape == (x.shape[0],)
+        #     emb = emb + self.label_emb(y)
             
         h = x.type(self.dtype)
         

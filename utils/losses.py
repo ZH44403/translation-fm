@@ -17,7 +17,7 @@ class CharbonnierLoss(nn.Module):
 
 class PatchGANLoss(nn.Module):
     
-    def __init__(self, in_channels=3+3, fm_lambda: float=1.0, use_fm: bool=True):
+    def __init__(self, in_channels=3+3, fm_lambda: float=10.0, use_fm: bool=True):
         super().__init__()
         
         self.discriminator = PatchGANDiscriminator(in_channels=in_channels)

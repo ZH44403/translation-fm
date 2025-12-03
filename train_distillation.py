@@ -17,7 +17,7 @@ from models import flow, unet
 from utils import losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 
 
 # hydra装饰器，指定配置文件路径和配置文件名
@@ -36,11 +36,19 @@ def train(args: DictConfig):
     
     best_score = float('-inf')
     
-    # dataset
-    train_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
-                                     data_type='train', split_ratio=args.dataset.split_ratio)
-    valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, 
-                                     data_type='valid', split_ratio=args.dataset.split_ratio)
+    # sen12 dataset
+    if args.dataset.name == 'sen12':
+        train_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, data_type='train', 
+                                        json_path=r'./data/sen12.json', split_ratio=args.dataset.split_ratio)
+        valid_set = dataset.SEN12Dataset(root_dir=args.dataset.root_dir, data_type='valid', 
+                                        json_path=r'./data/sen12.json', split_ratio=args.dataset.split_ratio)
+
+    # qxs dataset
+    elif args.dataset.name == 'qxs':
+        train_set = dataset.QXSDataset(root_dir=args.dataset.root_dir, data_type='train', 
+                                    json_path=r'./data/qxs.json', split_ratio=args.dataset.split_ratio)
+        valid_set = dataset.QXSDataset(root_dir=args.dataset.root_dir, data_type='valid', 
+                                    json_path=r'./data/qxs.json', split_ratio=args.dataset.split_ratio)
     
     # only use for debugging
     # train_set = torch.utils.data.Subset(train_set, range(40))
@@ -161,7 +169,7 @@ def train(args: DictConfig):
                 args.lambdas.distillation * loss_distillation + 
                 args.lambdas.lpips        * loss_lpips + 
                 args.lambdas.ssim         * loss_ssim +
-                args.lambdas.image        * loss_image+
+                args.lambdas.image        * loss_image +
                 args.lambdas.gan          * loss_gan_G
             )
             
