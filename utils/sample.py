@@ -6,9 +6,9 @@ from typing import List, Literal, Sequence
 
 
 @torch.inference_mode()
-def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
+def valid_sample(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
                  epoch: int, iter_idx: int, batch_size: int, sample_idx_list: Sequence[int],
-                 image_meta: torch.utils.data.Dataset, log_dir: Path, 
+                 image_meta: torch.utils.data.Dataset, log_dir: Path, dataset_name: Literal['sen12', 'qxs'],
                  every_n_epochs: int=1, layout: Literal['grid', 'folder']='grid', is_master: bool=True):
     
     if (epoch % every_n_epochs) != 0:
@@ -33,7 +33,7 @@ def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
         return
     
     save_dir = log_dir / 'samples'
-    snap_dir = save_dir / f"epoch_{epoch:04d}"
+    snap_dir = save_dir / f'epoch_{epoch:04d}'
     snap_dir.mkdir(parents=True, exist_ok=True)
     
     # sar, opt, pred生成一张图片
@@ -45,11 +45,15 @@ def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
             grid = torchvision.utils.make_grid(torch.stack(tiles, dim=0), nrow=len(tiles), padding=2)
             
             p = Path(image_pairs[start+j][0])
-            
-            image_class = p.parts[-3]
             image_name = p.stem
             
-            torchvision.utils.save_image(grid, str(snap_dir / f"{image_class}_{image_name}.png"))
+            if dataset_name == 'sen12':
+                image_class = p.parts[-3]
+                prefix = f'{image_class}_{image_name}'
+            elif dataset_name == 'qxs':
+                prefix = image_name
+            
+            torchvision.utils.save_image(grid, str(snap_dir / f'{prefix}.png'))
     
     elif layout == 'folder':
         
@@ -64,21 +68,24 @@ def sample_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
         for j in range(len(select_idx)):
             
             p = Path(image_pairs[start+j][0])
-            
-            image_class = p.parts[-3]
             image_name = p.stem
             
-            torchvision.utils.save_image(sar[j], str(sar_dir / f'{image_class}_{image_name}.png'))
-            torchvision.utils.save_image(opt[j], str(opt_dir / f'{image_class}_{image_name}.png'))
-            torchvision.utils.save_image(pred[j], str(pred_dir / f'{image_class}_{image_name}.png'))
+            if dataset_name == 'sen12':
+                image_class = p.parts[-3]
+                prefix = f'{image_class}_{image_name}'
+            elif dataset_name == 'qxs':
+                prefix = image_name
+            
+            torchvision.utils.save_image(sar[j], str(sar_dir / f'{prefix}.png'))
+            torchvision.utils.save_image(opt[j], str(opt_dir / f'{prefix}.png'))
+            torchvision.utils.save_image(pred[j], str(pred_dir / f'{prefix}.png'))
     
     return 
 
 
 @torch.inference_mode()
-def test_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
-               iter_idx: int, image_meta: torch.utils.data.Dataset, 
-               save_dir: Path, need_grid=False):
+def test_sample(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor, iter_idx: int, image_meta: torch.utils.data.Dataset, 
+               save_dir: Path, dataset_name: Literal['sen12', 'qxs'], need_grid=False):
     
     assert sar.ndim == opt.ndim == pred.ndim == 4        # [b, c, h, w]
     assert sar.shape[:1] == opt.shape[:1] == pred.shape[:1]
@@ -93,12 +100,17 @@ def test_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
     pred_dir.mkdir(parents=True, exist_ok=True)
     
     p = Path(image_meta.image_pairs[iter_idx][0])
-    image_class = p.parts[-3]
     image_name = p.stem
     
-    torchvision.utils.save_image(sar, str(sar_dir / f'{image_class}_{image_name}.png'))
-    torchvision.utils.save_image(opt, str(opt_dir / f'{image_class}_{image_name}.png'))
-    torchvision.utils.save_image(pred, str(pred_dir / f'{image_class}_{image_name}.png'))
+    if dataset_name == 'sen12':
+        image_class = p.parts[-3]
+        prefix = f'{image_class}_{image_name}'
+    elif dataset_name == 'qxs':
+        prefix = image_name
+
+    torchvision.utils.save_image(sar, str(sar_dir / f'{prefix}.png'))
+    torchvision.utils.save_image(opt, str(opt_dir / f'{prefix}.png'))
+    torchvision.utils.save_image(pred, str(pred_dir / f'{prefix}.png'))
     
     if need_grid:
         
@@ -110,6 +122,6 @@ def test_sen12(sar: torch.Tensor, opt: torch.Tensor, pred: torch.Tensor,
             tiles = [sar[j], opt[j], pred[j]]
             grid = torchvision.utils.make_grid(torch.stack(tiles, dim=0), nrow=len(tiles), padding=2)
         
-        torchvision.utils.save_image(grid, str(grid_dir / f"{image_class}_{image_name}.png"))
+        torchvision.utils.save_image(grid, str(grid_dir / f'{prefix}.png'))
     
     return

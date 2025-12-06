@@ -16,7 +16,7 @@ from models import flow, unet
 from utils import losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 
 # hydra装饰器，指定配置文件路径和配置文件名
 @hydra.main(config_path='configs', config_name='config', version_base='1.3')
@@ -109,10 +109,14 @@ def train(args: DictConfig):
             assert sar.shape == opt.shape
             
             x_t, v_true = flow_model.step(t, sar, opt)
-            v_pred = model(t, x_t, sar)
+            v_pred = model(t, x_t)
             loss_velocity = velocity_loss(v_pred, v_true)
+            
+            t_ = t.view(-1, 1, 1, 1)                    # [B,1,1,1]
+            x1_pred = x_t + (1.0 - t_) * v_pred
 
-            train_loss = loss_velocity
+            img_loss = torch.nn.functional.l1_loss(x1_pred, opt)
+            train_loss = loss_velocity + 0.1 * img_loss
             # scaler.scale(train_loss).backward()
             train_loss.backward()
                 
@@ -161,7 +165,7 @@ def train(args: DictConfig):
                 # 速度场验证
                 t = torch.rand(sar.shape[0], device=device)
                 x_t, v_true = flow_model.step(t, sar, opt)
-                v_pred = model(t, x_t, sar)
+                v_pred = model(t, x_t)
                 
                 valid_loss_velocity = velocity_loss(v_pred, v_true)
                 valid_loss += valid_loss_velocity.item()
@@ -177,8 +181,7 @@ def train(args: DictConfig):
                 valid_lpips += torch.mean(lpips(opt_pred_01, opt_01)).item()
                 valid_ssim  += torch.mean(ssim(opt_pred_01, opt_01)).item()
                 
-                sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
-                                    sample_idx_list, valid_set, log_dir, 
+                sample.valid_sample(sar, opt, opt_pred, epoch, i, sar.shape[0], sample_idx_list, valid_set, log_dir, args.dataset.name, 
                                     every_n_epochs=args.valid.sample_interval, layout=args.valid.sample_layout)
                 
                 valid_bar.set_postfix(v_loss=f'{valid_loss/(i+1):.4f}', psnr=f'{valid_psnr/(i+1):.2f}', 
@@ -210,6 +213,9 @@ def train(args: DictConfig):
         # ----------- end of epoch ------------
         
         utils.save_checkpoint(checkpoint_dir/'last.pth', epoch, model, ema_model, optimizer, args, metrics_epoch)
+        
+        print(f"opt_pred: min {opt_pred.min().item():.3f}, "f"max {opt_pred.max().item():.3f}, "f"mean {opt_pred.mean().item():.3f}")
+        print(f"opt_gt  : min {opt.min().item():.3f}, "f"max {opt.max().item():.3f}, "f"mean {opt.mean().item():.3f}")
             
 
 if __name__ == '__main__':

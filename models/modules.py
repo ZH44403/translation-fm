@@ -64,7 +64,6 @@ class Upsample(nn.Module):
         if self.conv_resample:
             self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         
-        # self.up = nn.Upsample(scale_factor=2, mode='nearest')
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         
     def forward(self, x):
@@ -108,8 +107,7 @@ class ResBlock(TimestepBlock):
         
         self.emb_layers = nn.Sequential(
             nn.SiLU(),
-            zero_module(nn.Linear(emb_channels, 2 * self.out_channels))
-            # nn.Linear(emb_channels, self.out_channels)
+            nn.Linear(emb_channels, self.out_channels)
         )
         
         self.out_layers = nn.Sequential(
@@ -137,14 +135,8 @@ class ResBlock(TimestepBlock):
             h = self.in_layers(x)
         
         emb_out = self.emb_layers(emb).type(h.dtype)
-        gamma, beta = torch.chunk(emb_out, 2, dim=1)
         
-        gamma = 0.5 * torch.tanh(gamma)   # [-0.5, 0.5]
-        beta  = 0.5 * torch.tanh(beta)    # [-0.5, 0.5]
-        
-        h = h * (1.0 + gamma[:, :, None, None]) + beta[:, :, None, None]
-        
-        # h = h + emb_out[:, :, None, None]
+        h = h + emb_out[:, :, None, None]
         h = self.out_layers(h)
         
         return self.skip_connection(x) + h
@@ -159,7 +151,7 @@ class AttentionBlock(nn.Module):
         if num_head_channels == -1:
             self.num_heads = num_heads
         else:
-            assert in_channels % num_head_channels == 0, f'q,k,v channels {in_channels} is not divisible by num_head_channels {num_head_channels}'
+            assert in_channels % num_head_channels == 0, 'q,k,v channels {in_channels} is not divisible by num_head_channels {num_head_channels}'
             self.num_heads = in_channels // num_head_channels
             
         self.norm = nn.GroupNorm(32, in_channels)

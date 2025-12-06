@@ -17,7 +17,7 @@ from models import flow, unet
 from utils import losses, utils, sample
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 
 # hydra装饰器，指定配置文件路径和配置文件名
@@ -258,9 +258,9 @@ def train(args: DictConfig):
                 valid_psnr  += torch.mean(psnr(opt_pred_01, opt_01)).item()
                 valid_lpips += torch.mean(lpips(opt_pred_01, opt_01)).item()
                 valid_ssim  += torch.mean(ssim(opt_pred_01, opt_01)).item()
-
-                sample.sample_sen12(sar, opt, opt_pred, epoch, i, sar.shape[0], 
-                                    sample_idx_list, valid_set, log_dir, every_n_epochs=args.valid.sample_interval)
+                
+                sample.valid_sample(sar, opt, opt_pred, epoch, i, sar.shape[0], sample_idx_list, valid_set, log_dir, args.dataset.name, 
+                                    every_n_epochs=args.valid.sample_interval, layout=args.valid.sample_layout)
                 
                 valid_bar.set_postfix(i=f'{valid_loss_image/(i+1):.4f}',
                                       v=f'{valid_loss_velocity/(i+1):.4f}', 
